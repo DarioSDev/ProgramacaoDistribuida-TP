@@ -1,7 +1,9 @@
 package pt.isec.pd.client;
 
+import javafx.application.Application;
+
 public class Main {
     public static void main(String[] args) {
-        System.out.printf("Hello client!");
+        Application.launch(MainJavaFx.class, args);
     }
 }
