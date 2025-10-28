@@ -7,11 +7,11 @@ import java.time.Instant;
 import java.util.Iterator;
 import java.util.List;
 
-public class HeartbeatMonitor extends Thread {
+public class DirectoryHeartbeatMonitor extends Thread {
     private final List<ServerInfo> servers;
     private static final long TIMEOUT_SECONDS = 17;
 
-    public HeartbeatMonitor(List<ServerInfo> servers) {
+    public DirectoryHeartbeatMonitor(List<ServerInfo> servers) {
         this.servers = servers;
         setDaemon(true);
     }

@@ -25,7 +25,7 @@ public class DirectoryService {
         System.out.println("[Directory] Serviço de diretoria a escutar no porto UDP " + udpPort);
 
         // Thread que remove servidores inativos
-        new HeartbeatMonitor(activeServers).start();
+        new DirectoryHeartbeatMonitor(activeServers).start();
 
         try (DatagramSocket socket = new DatagramSocket(udpPort)) {
             byte[] buffer = new byte[1024];

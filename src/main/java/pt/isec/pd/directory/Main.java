@@ -2,7 +2,7 @@ package pt.isec.pd.directory;
 
 public class Main {
     public static void main(String[] args) {
-        System.out.printf("Hello directory!");
+        System.out.println("Hello directory!");
         if (args.length != 1) {
             System.err.println("Uso: java DirectoryMain <porto_escuta_UDP>");
             System.exit(1);
