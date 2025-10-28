@@ -38,13 +38,6 @@ public class DirectoryService {
                 System.out.printf("[Directory] Datagram recebido de %s:%d -> '%s'%n",
                         packet.getAddress().getHostAddress(), packet.getPort(), message);
 
-                System.out.printf(
-                        "[Directory] Datagram recebido de %s:%d -> '%s'%n",
-                        packet.getAddress().getHostAddress(),
-                        packet.getPort(),
-                        message
-                );
-
                 String[] parts = message.trim().split("\\s+");
                 MessageType type = MessageType.fromString(parts[0]);
                 if (type == null) {

@@ -21,18 +21,16 @@ public class DirectoryHeartbeatMonitor extends Thread {
         while (true) {
             try {
                 Thread.sleep(5000);
-
                 Instant now = Instant.now();
-                Iterator<ServerInfo> iterator = servers.iterator();
-                while (iterator.hasNext()) {
-                    ServerInfo s = iterator.next();
-                    if (Duration.between(s.getLastHeartbeat(), now).getSeconds() > TIMEOUT_SECONDS) {
-                        iterator.remove();
+
+                servers.removeIf(s -> {
+                    boolean expired = Duration.between(s.getLastHeartbeat(), now).getSeconds() > TIMEOUT_SECONDS;
+                    if (expired)
                         System.out.println("[Directory] Servidor removido (timeout): " + s);
-                    }
-                }
-            } catch (InterruptedException ignored) {
-            }
+                    return expired;
+                });
+
+            } catch (InterruptedException ignored) {}
         }
     }
 }
