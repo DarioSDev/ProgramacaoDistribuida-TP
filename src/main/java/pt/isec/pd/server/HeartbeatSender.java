@@ -22,16 +22,19 @@ public class HeartbeatSender extends Thread {
     @Override
     public void run() {
         try {
-            while (true) {
+            while (!Thread.currentThread().isInterrupted()) {
                 String msg = "HEARTBEAT " + tcpPort;
                 byte[] data = msg.getBytes(StandardCharsets.UTF_8);
                 DatagramPacket packet = new DatagramPacket(
                         data, data.length, InetAddress.getByName(directoryHost), directoryPort
                 );
                 socket.send(packet);
-                System.out.printf("[Server] ❤️ Heartbeat enviado (%s:%d)%n", directoryHost, tcpPort);
+                System.out.printf("[Server] Heartbeat enviado (%s:%d)%n", directoryHost, tcpPort);
                 Thread.sleep(heartbeatInterval);
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt(); // restaurar flag
+            System.out.println("[Server] Heartbeat interrompido.");
         } catch (Exception e) {
             System.err.println("[Server] Erro no envio de heartbeat: " + e.getMessage());
         }

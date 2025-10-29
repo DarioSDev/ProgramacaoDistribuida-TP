@@ -1,56 +1,276 @@
+// pt.isec.pd.server.ServerService
 package pt.isec.pd.server;
 
-import java.io.IOException;
+import pt.isec.pd.common.MessageType;
+
+import java.io.*;
 import java.net.*;
-import java.nio.charset.StandardCharsets;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.util.Scanner;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class ServerService {
-    private static final int HEARTBEAT_INTERVAL = 5000; // 5 segundos
+    private static final int HEARTBEAT_INTERVAL_MS = 5000;
+    private static final int DIRECTORY_TIMEOUT_MS = 26000;
 
     private final String directoryHost;
     private final int directoryPort;
-    private final int tcpPort;
-    private final DatagramSocket socket;
+    private final String multicastGroupIp;
 
-    public ServerService(String directoryHost, int directoryPort, int tcpPort) throws SocketException {
+    private int tcpClientPort = 0;
+    private int tcpDbPort = 0;
+    private int udpPort = 0;
+
+    private DatagramSocket udpSocket;
+    private ServerSocket clientServerSocket;
+    private ServerSocket dbServerSocket;
+    private MulticastSocket multicastSocket;
+
+    private InetAddress primaryIp = null;
+    private int primaryDbPort = -1;
+    private boolean isPrimary = false;
+    private boolean running = true;
+
+    private HeartbeatSender heartbeatSender;
+
+    private long lastDirectoryHeartbeat = System.currentTimeMillis();
+
+    public ServerService(String directoryHost, int directoryPort, String multicastGroupIp) {
         this.directoryHost = directoryHost;
         this.directoryPort = directoryPort;
-        this.tcpPort = tcpPort;
-        this.socket = new DatagramSocket();
+        this.multicastGroupIp = multicastGroupIp;
     }
 
     public void start() {
         try {
-            registerServer();
-            HeartbeatSender sender = new HeartbeatSender(socket, directoryHost, directoryPort, tcpPort, HEARTBEAT_INTERVAL);
-            sender.run();
-            System.out.println("[ServerService] Servidor registado e heartbeat iniciado.");
+            // 1. Criar sockets
+            udpSocket = new DatagramSocket();
+            udpPort = udpSocket.getLocalPort();
+
+            clientServerSocket = new ServerSocket(0);
+            dbServerSocket = new ServerSocket(0);
+            tcpClientPort = clientServerSocket.getLocalPort();
+            tcpDbPort = dbServerSocket.getLocalPort();
+
+            System.out.printf("[Server] Portos: UDP=%d, Cliente=%d, BD=%d%n", udpPort, tcpClientPort, tcpDbPort);
+
+            // 2. Registar e aguardar confirmação
+            if (!registerAndGetPrimary()) {
+                System.err.println("[Server] Falha no registo com o Directory. A terminar.");
+                return;
+            }
+
+            // 3. Iniciar serviços
+            heartbeatSender = new HeartbeatSender(
+                    udpSocket,
+                    directoryHost,
+                    directoryPort,
+                    tcpClientPort,
+                    HEARTBEAT_INTERVAL_MS
+            );
+            heartbeatSender.start();
+            startDirectoryHeartbeatListener();
+            startClientListener();
+            startDbSyncListener();
+            startMulticastReceiver();
+
+            System.out.println("[Server] Servidor iniciado.");
+            if (isPrimary) {
+                System.out.println("[Server] Este é o servidor PRINCIPAL.");
+            } else {
+                System.out.printf("[Server] Principal: %s:%d%n", primaryIp.getHostAddress(), primaryDbPort);
+                downloadDatabaseFromPrimary();
+            }
+
+            new Scanner(System.in).nextLine();
+
         } catch (IOException e) {
-            System.err.println("[ServerService] Erro ao iniciar o servidor: " + e.getMessage());
+            System.err.println("[Server] Erro fatal: " + e.getMessage());
+        } finally {
+            shutdown();
         }
     }
 
-    private void registerServer() throws IOException {
-        String msg = "REGISTER " + tcpPort;
-        byte[] data = msg.getBytes(StandardCharsets.UTF_8);
-        InetAddress address = InetAddress.getByName(directoryHost);
-        DatagramPacket packet = new DatagramPacket(data, data.length, address, directoryPort);
-        socket.send(packet);
-        System.out.printf("[ServerService] Enviado registo: %s:%d -> %s%n", directoryHost, directoryPort, msg);
-    }
+    private boolean registerAndGetPrimary() throws IOException {
+        udpSocket.setSoTimeout(DIRECTORY_TIMEOUT_MS);
 
-    private void sendHeartbeat() {
+        String msg = String.format("%s %d %d %d", MessageType.REGISTER, tcpClientPort, tcpDbPort, udpPort);
+        byte[] buf = msg.getBytes();
+        InetAddress dirAddr = InetAddress.getByName(directoryHost);
+
+        DatagramPacket packet = new DatagramPacket(buf, buf.length, dirAddr, directoryPort);
+        udpSocket.send(packet);
+        System.out.println("[Server] Registo enviado: " + msg);
+
+        byte[] recvBuf = new byte[256];
+        DatagramPacket recv = new DatagramPacket(recvBuf, recvBuf.length);
         try {
-            String msg = "HEARTBEAT " + tcpPort;
-            byte[] data = msg.getBytes(StandardCharsets.UTF_8);
-            InetAddress address = InetAddress.getByName(directoryHost);
-            DatagramPacket packet = new DatagramPacket(data, data.length, address, directoryPort);
-            socket.send(packet);
-            System.out.printf("[ServerService] → Heartbeat enviado (%d)%n", tcpPort);
-        } catch (IOException e) {
-            System.err.println("[ServerService] Erro ao enviar heartbeat: " + e.getMessage());
+            udpSocket.receive(recv);
+            String response = new String(recv.getData(), 0, recv.getLength()).trim();
+            System.out.println("[Server] Confirmação: " + response);
+
+            String[] parts = response.split("\\s+");
+            if (parts.length >= 3 && parts[0].equals("PRIMARY")) {
+                primaryIp = InetAddress.getByName(parts[1]);
+                primaryDbPort = Integer.parseInt(parts[2]);
+                isPrimary = primaryIp.getHostAddress().equals(InetAddress.getLocalHost().getHostAddress())
+                        && primaryDbPort == tcpDbPort;
+                return true;
+            }
+        } catch (SocketTimeoutException e) {
+            System.err.println("[Server] Timeout: Directory não responde.");
         }
+        return false;
+    }
+
+    private void startDirectoryHeartbeatListener() {
+        new Thread(() -> {
+            byte[] buf = new byte[256];
+            while (running) {
+                try {
+                    DatagramPacket packet = new DatagramPacket(buf, buf.length);
+                    udpSocket.setSoTimeout(DIRECTORY_TIMEOUT_MS);
+                    udpSocket.receive(packet);
+                    String msg = new String(packet.getData(), 0, packet.getLength()).trim();
+
+                    if ("DIRECTORY_HEARTBEAT".equals(msg)) {
+                        lastDirectoryHeartbeat = System.currentTimeMillis();
+                    }
+                } catch (SocketTimeoutException e) {
+                    System.err.println("[Server] Directory inativo por mais de 26s! Encerrando...");
+                    shutdown();
+                    System.exit(0);
+                } catch (IOException e) {
+                    if (running) System.err.println("[Server] Erro UDP: " + e.getMessage());
+                }
+            }
+        }, "Dir-Heartbeat-Listener").start();
+    }
+
+    private void startClientListener() {
+        ExecutorService pool = Executors.newFixedThreadPool(10);
+        new Thread(() -> {
+            while (running) {
+                try {
+                    Socket client = clientServerSocket.accept();
+                    if (isPrimary) {
+                        pool.submit(() -> handleClient(client));
+                    } else {
+                        redirectClient(client);
+                    }
+                } catch (IOException e) {
+                    if (running) System.err.println("[Server] Erro cliente: " + e.getMessage());
+                }
+            }
+        }, "ClientListener").start();
+    }
+
+    private void handleClient(Socket client) {
+        try (PrintWriter out = new PrintWriter(client.getOutputStream(), true)) {
+            out.println("Bem-vindo! (BD ainda não implementada)");
+        } catch (IOException e) {
+            System.err.println("[Server] Erro cliente: " + e.getMessage());
+        } finally {
+            try { client.close(); } catch (IOException ignored) {}
+        }
+    }
+
+    private void redirectClient(Socket client) {
+        try (PrintWriter out = new PrintWriter(client.getOutputStream(), true)) {
+            out.println("REDIRECT " + primaryIp.getHostAddress() + " " + tcpClientPort);
+        } catch (IOException ignored) {}
+        try { client.close(); } catch (IOException ignored) {}
+    }
+
+    private void startDbSyncListener() {
+        new Thread(() -> {
+            while (running) {
+                try {
+                    Socket peer = dbServerSocket.accept();
+                    sendDatabase(peer);
+                    peer.close();
+                } catch (IOException e) {
+                    if (running) System.err.println("[Server] Erro sync BD: " + e.getMessage());
+                }
+            }
+        }, "DbSyncListener").start();
+    }
+
+    private void sendDatabase(Socket peer) {
+        File dbFile = new File("events.db");
+        if (!dbFile.exists()) {
+            System.out.println("[Server] BD não existe. Criando vazia...");
+            try (var conn = java.sql.DriverManager.getConnection("jdbc:sqlite:events.db")) {
+                var stmt = conn.createStatement();
+                stmt.execute("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, name TEXT)");
+            } catch (Exception e) {
+                System.err.println("Erro ao criar BD: " + e.getMessage());
+                return;
+            }
+        }
+
+        try (FileInputStream fis = new FileInputStream(dbFile);
+             OutputStream out = peer.getOutputStream()) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = fis.read(buffer)) != -1) {
+                out.write(buffer, 0, read);
+            }
+        } catch (IOException e) {
+            System.err.println("[Server] Erro ao enviar BD: " + e.getMessage());
+        }
+    }
+
+    private void downloadDatabaseFromPrimary() {
+        System.out.println("[Server] Sincronizando BD com principal...");
+        try (Socket socket = new Socket(primaryIp, primaryDbPort);
+             InputStream in = socket.getInputStream();
+             FileOutputStream fos = new FileOutputStream("events.db")) {
+
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) != -1) {
+                fos.write(buffer, 0, read);
+            }
+            System.out.println("[Server] BD sincronizada.");
+        } catch (IOException e) {
+            System.err.println("[Server] Falha na sincronização: " + e.getMessage());
+        }
+    }
+
+    private void startMulticastReceiver() {
+        try {
+            multicastSocket = new MulticastSocket(8888);
+            InetAddress group = InetAddress.getByName(multicastGroupIp);
+            multicastSocket.joinGroup(group);
+
+            new Thread(() -> {
+                byte[] buf = new byte[256];
+                while (running) {
+                    try {
+                        DatagramPacket packet = new DatagramPacket(buf, buf.length);
+                        multicastSocket.receive(packet);
+                        String msg = new String(packet.getData(), 0, packet.getLength());
+                        System.out.println("[Multicast] " + msg);
+                    } catch (IOException e) {
+                        if (running) System.err.println("[Multicast] Erro: " + e.getMessage());
+                    }
+                }
+            }, "Multicast").start();
+        } catch (IOException e) {
+            System.err.println("[Server] Erro multicast: " + e.getMessage());
+        }
+    }
+
+    private void shutdown() {
+        running = false;
+        if (heartbeatSender != null && heartbeatSender.isAlive()) {
+            heartbeatSender.interrupt(); // para sair do sleep
+        }
+        try { if (udpSocket != null) udpSocket.close(); } catch (Exception ignored) {}
+        try { if (clientServerSocket != null) clientServerSocket.close(); } catch (Exception ignored) {}
+        try { if (dbServerSocket != null) dbServerSocket.close(); } catch (Exception ignored) {}
+        try { if (multicastSocket != null) multicastSocket.close(); } catch (Exception ignored) {}
+        System.out.println("[Server] Encerrado.");
     }
 }

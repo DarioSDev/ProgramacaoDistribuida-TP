@@ -1,30 +1,49 @@
+// pt.isec.pd.server.Main.java
 package pt.isec.pd.server;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-
 @SpringBootApplication(scanBasePackages = "pt.isec.pd")
 public class Main {
     public static void main(String[] args) {
         try {
-            System.out.println("Hello server!");
+            System.out.println("Iniciando servidor...");
 
+            // Verificar argumentos
             if (args.length < 2) {
-                System.out.println("Uso: java pt.isec.pd.server.Main <portoTCP> <portoDiretoria>");
+                System.err.println("Uso: java -jar server.jar <IP_DIRETORIA>:<PORTA_UDP> <IP_MULTICAST>");
+                System.err.println("Exemplo: java -cp server.jar pt.isec.pd.server.Main 127.0.0.1:9000 239.1.1.1");
                 return;
             }
 
-            int tcpPort = Integer.parseInt(args[0]);
-            int directoryPort = Integer.parseInt(args[1]);
+            // Parse: <IP>:<PORTA>
+            String[] dirParts = args[0].split(":");
+            if (dirParts.length != 2) {
+                System.err.println("Formato inválido para diretoria: <IP>:<PORTA>");
+                return;
+            }
 
-            ServerService serverService = new ServerService("127.0.0.1", directoryPort, tcpPort);
+            String directoryHost = dirParts[0];
+            int directoryPort;
+            try {
+                directoryPort = Integer.parseInt(dirParts[1]);
+            } catch (NumberFormatException e) {
+                System.err.println("Porta UDP inválida: " + dirParts[1]);
+                return;
+            }
+
+            String multicastGroupIp = args[1];
+
+            // Iniciar o ServerService com os parâmetros corretos
+            ServerService serverService = new ServerService(directoryHost, directoryPort, multicastGroupIp);
             serverService.start();
 
-            // Se quisermos ativar o Spring Boot no futuro:
+            // Opcional: ativar Spring Boot no futuro (REST API, etc.)
             // SpringApplication.run(Main.class, args);
 
         } catch (Exception e) {
+            System.err.println("Erro fatal no servidor:");
             e.printStackTrace();
         }
     }
