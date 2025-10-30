@@ -41,7 +41,8 @@ public class Main {
             ServerService serverService = new ServerService(directoryHost, directoryPort, multicastGroupIp);
             serverService.start();
 
-            new Scanner(System.in).nextLine(); // Teste para fazer o server anunciar que vai encerrar
+            // Teste para fazer o server anunciar que vai encerrar
+            new Scanner(System.in).nextLine();
             serverService.shutdown();
 
             // Opcional: ativar Spring Boot no futuro (REST API, etc.)
