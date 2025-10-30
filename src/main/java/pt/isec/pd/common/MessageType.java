@@ -3,7 +3,8 @@ package pt.isec.pd.common;
 public enum MessageType {
     REGISTER,
     HEARTBEAT,
-    REQUEST_SERVER;
+    REQUEST_SERVER,
+    UNREGISTER;
 
     public static MessageType fromString(String s) {
         try {

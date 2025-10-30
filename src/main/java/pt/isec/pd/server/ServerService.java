@@ -10,6 +10,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class ServerService {
+    private static final String MULTICAST_IP = "230.30.30.30";
+    private static final int MULTICAST_PORT = 3030;
     private static final int HEARTBEAT_INTERVAL_MS = 5000;
     private static final int DIRECTORY_TIMEOUT_MS = 26000;
 
@@ -73,6 +75,7 @@ public class ServerService {
             startClientListener();
             startDbSyncListener();
             startMulticastReceiver();
+            startMulticastHeartbeat();
 
             System.out.println("[Server] Servidor iniciado.");
             if (isPrimary) {
@@ -262,8 +265,42 @@ public class ServerService {
         }
     }
 
-    private void shutdown() {
+    private void startMulticastHeartbeat() {
+        new Thread(() -> {
+            try {
+                multicastSocket = new MulticastSocket();
+                InetAddress group = InetAddress.getByName(MULTICAST_IP);
+
+                String msg = "HEARTBEAT " + tcpClientPort;
+                byte[] buf = msg.getBytes();
+
+                while (running) {
+                    DatagramPacket packet = new DatagramPacket(buf, buf.length, group, MULTICAST_PORT);
+                    multicastSocket.send(packet);
+                    Thread.sleep(HEARTBEAT_INTERVAL_MS);
+                }
+            } catch (Exception e) {
+                if (running) System.err.println("[Server] Erro no multicast: " + e.getMessage());
+            }
+        }, "Multicast-Heartbeat").start();
+    }
+
+    private void sendUnregister() {
+        try {
+            String msg = "UNREGISTER " + tcpClientPort;
+            byte[] buf = msg.getBytes();
+            InetAddress dirAddr = InetAddress.getByName(directoryHost);
+            DatagramPacket packet = new DatagramPacket(buf, buf.length, dirAddr, directoryPort);
+            udpSocket.send(packet);
+            System.out.println("[Server] UNREGISTER enviado ao Directory.");
+        } catch (IOException e) {
+            System.err.println("[Server] Falha ao enviar UNREGISTER: " + e.getMessage());
+        }
+    }
+
+    public void shutdown() {
         running = false;
+        sendUnregister();
         if (heartbeatSender != null && heartbeatSender.isAlive()) {
             heartbeatSender.interrupt(); // para sair do sleep
         }

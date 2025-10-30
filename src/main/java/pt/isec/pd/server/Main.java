@@ -4,6 +4,8 @@ package pt.isec.pd.server;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
+import java.util.Scanner;
+
 @SpringBootApplication(scanBasePackages = "pt.isec.pd")
 public class Main {
     public static void main(String[] args) {
@@ -38,6 +40,9 @@ public class Main {
             // Iniciar o ServerService com os parâmetros corretos
             ServerService serverService = new ServerService(directoryHost, directoryPort, multicastGroupIp);
             serverService.start();
+
+            new Scanner(System.in).nextLine(); // Teste para fazer o server anunciar que vai encerrar
+            serverService.shutdown();
 
             // Opcional: ativar Spring Boot no futuro (REST API, etc.)
             // SpringApplication.run(Main.class, args);

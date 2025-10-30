@@ -49,6 +49,7 @@ public class DirectoryService {
                     case REGISTER -> handleRegister(parts, packet.getAddress(), packet.getPort());
                     case HEARTBEAT -> handleHeartbeat(parts, packet.getAddress());
                     case REQUEST_SERVER -> handleRequest(socket, packet.getAddress(), packet.getPort());
+                    case UNREGISTER -> handleUnregister(parts, packet.getAddress());
                     default -> System.out.println("[Directory] Mensagem desconhecida: " + message);
                 }
             }
@@ -173,6 +174,31 @@ public class DirectoryService {
                 } catch (InterruptedException ignored) {}
             }
         }, "Directory-Heartbeat-Sender").start();
+    }
+
+    private void handleUnregister(String[] parts, InetAddress address) {
+        if (parts.length < 2) return;
+
+        int tcpClientPort = Integer.parseInt(parts[1]);
+        String key = address.getHostAddress() + ":" + tcpClientPort;
+
+        synchronized (activeServers) {
+            ServerInfo server = activeServers.stream()
+                    .filter(s -> s.getKey().equals(key))
+                    .findFirst()
+                    .orElse(null);
+
+            if (server != null) {
+                activeServers.remove(server);
+                System.out.println("[Directory] UNREGISTER recebido: " + key + " removido.");
+                if (activeServers.isEmpty()) {
+                    System.out.println("[Directory] Nenhum servidor ativo.");
+                } else {
+                    System.out.println("[Directory] Novo principal: " + activeServers.get(0).getKey());
+                }
+                logActiveServers();
+            }
+        }
     }
 
     private void logActiveServers() {
