@@ -10,8 +10,8 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class DirectoryService {
-    private static final int HEARTBEAT_TO_SERVERS_MS = 13000; // 13s - Directory → Servidores
-    private static final int SERVER_TIMEOUT_MS = 17000;       // 17s - Directory remove servidor
+    private static final int HEARTBEAT_TO_SERVERS_MS = 13000;
+    private static final int SERVER_TIMEOUT_MS = 17000;
     private final int udpPort;
     private final List<ServerInfo> activeServers = new CopyOnWriteArrayList<>();
     private boolean running = true;
@@ -75,29 +75,24 @@ public class DirectoryService {
         }
 
         String key = address.getHostAddress() + ":" + tcpClientPort;
+        ServerInfo newServer = new ServerInfo(address, tcpClientPort, tcpDbPort, udpPort);
 
         synchronized (activeServers) {
-            boolean exists = activeServers.stream().anyMatch(s -> s.getKey().equals(key));
-            ServerInfo newServer = new ServerInfo(address, tcpClientPort, tcpDbPort, udpPort);
+            // Remove se já existir (re-registo)
+            activeServers.removeIf(s -> s.getKey().equals(key));
 
-            if (!exists) {
-                activeServers.add(newServer);
-                System.out.println("[Directory] Novo servidor registado: " + newServer);
-            } else {
-                ServerInfo existing = activeServers.stream()
-                        .filter(s -> s.getKey().equals(key))
-                        .findFirst().orElse(null);
-                if (existing != null) {
-                    existing.setLastHeartbeat(java.time.Instant.now());
-                    System.out.println("[Directory] Servidor já registado (atualizado): " + key);
-                }
-                newServer = existing;
-            }
+            // Adiciona no FIM (ordem de chegada)
+            activeServers.add(newServer);
 
-            // Confirmação com o principal atual
-            ServerInfo primary = activeServers.get(0);
-            String confirmMsg = String.format("PRIMARY %s %d",
+            // Ordena por registrationTime ASC (mais antigo primeiro)
+            activeServers.sort((a, b) -> Long.compare(a.getRegistrationTime(), b.getRegistrationTime()));
+
+            newServer.setLastHeartbeat(java.time.Instant.now());
+
+            ServerInfo primary = activeServers.get(0);  // SEMPRE o mais antigo!
+            String confirmMsg = String.format("PRIMARY %s %d %d",
                     primary.getAddress().getHostAddress(),
+                    primary.getTcpClientPort(),
                     primary.getTcpDbPort());
 
             DatagramSocket socket = new DatagramSocket();
@@ -106,9 +101,26 @@ public class DirectoryService {
             socket.send(confirmPacket);
             socket.close();
 
-            System.out.println("[Directory] Confirmação enviada: " + confirmMsg + " → " + key);
-            System.out.println("[Directory] Servidor principal atual: " + primary.getKey());
+            System.out.println("[Directory] SERVIDOR REGISTADO: " + key);
+            System.out.println("[Directory] PRIMARY (mais antigo): " + primary.getKey() + " | reg: " + primary.getRegistrationTime());
             logActiveServers();
+        }
+    }
+
+    private void handleRequest(DatagramSocket socket, InetAddress clientAddr, int clientPort) throws IOException {
+        synchronized (activeServers) {
+            if (activeServers.isEmpty()) {
+                String msg = "NO_SERVER_AVAILABLE";
+                socket.send(new DatagramPacket(msg.getBytes(), msg.length(), clientAddr, clientPort));
+                System.out.println("[Directory] Cliente → nenhum servidor disponível");
+                return;
+            }
+
+            // PRIMARY = mais antigo vivo
+            ServerInfo primary = activeServers.get(0);
+            String response = primary.getAddress().getHostAddress() + " " + primary.getTcpClientPort();
+            socket.send(new DatagramPacket(response.getBytes(), response.length(), clientAddr, clientPort));
+            System.out.println("[Directory] Cliente → PRIMARY (mais antigo): " + response + " | reg: " + primary.getRegistrationTime());
         }
     }
 
@@ -132,21 +144,20 @@ public class DirectoryService {
         }
     }
 
-    private void handleRequest(DatagramSocket socket, InetAddress clientAddr, int clientPort) throws IOException {
-        synchronized (activeServers) {
-            if (activeServers.isEmpty()) {
-                String msg = "NO_SERVER_AVAILABLE";
-                socket.send(new DatagramPacket(msg.getBytes(), msg.length(), clientAddr, clientPort));
-                System.out.println("[Directory] Cliente → nenhum servidor disponível");
-                return;
-            }
-
-            ServerInfo primary = activeServers.get(0);
-            String response = primary.getAddress().getHostAddress() + " " + primary.getTcpClientPort();
-            socket.send(new DatagramPacket(response.getBytes(), response.length(), clientAddr, clientPort));
-            System.out.println("[Directory] Cliente → redirecionado para principal: " + response + " (" + primary.getKey() + ")");
-        }
-    }
+//    private void handleRequest(DatagramSocket socket, InetAddress clientAddr, int clientPort) throws IOException {
+//        synchronized (activeServers) {
+//            if (activeServers.isEmpty()) {
+//                String msg = "NO_SERVER_AVAILABLE";
+//                socket.send(new DatagramPacket(msg.getBytes(), msg.length(), clientAddr, clientPort));
+//                return;
+//            }
+//
+//            ServerInfo primary = activeServers.get(0);  // SEMPRE o primary
+//            String response = primary.getAddress().getHostAddress() + " " + primary.getTcpClientPort();
+//            socket.send(new DatagramPacket(response.getBytes(), response.length(), clientAddr, clientPort));
+//            System.out.println("[Directory] Cliente redirecionado para PRIMARY: " + response);
+//        }
+//    }
 
     private void startDirectoryHeartbeatSender() {
         new Thread(() -> {
@@ -206,12 +217,12 @@ public class DirectoryService {
             System.out.println("[Directory] Nenhum servidor ativo.");
             return;
         }
-        System.out.println("[Directory] Servidores ativos (ordem de registo):");
+        System.out.println("[Directory] Servidores ativos (ordem: mais antigo → mais recente):");
         int i = 1;
         for (ServerInfo s : activeServers) {
-            System.out.printf("   %d. %s (hb: %s)%s%n",
-                    i++, s.getKey(), s.getLastHeartbeat(),
-                    (i == 2 ? " ← PRINCIPAL" : ""));
+            System.out.printf("   %d. %s | reg: %d%s%n",
+                    i++, s.getKey(), s.getRegistrationTime(),
+                    (i == 2 ? " ← PRIMARY" : ""));
         }
     }
 }

@@ -20,6 +20,7 @@ public class ServerService {
     private final String multicastGroupIp;
 
     private int tcpClientPort = 0;
+    private int primaryTcpClientPort = -1;  // ← NOVO: porto TCP do primary
     private int tcpDbPort = 0;
     private int udpPort = 0;
 
@@ -34,7 +35,6 @@ public class ServerService {
     private boolean running = true;
 
     private HeartbeatSender heartbeatSender;
-
     private long lastDirectoryHeartbeat = System.currentTimeMillis();
 
     public ServerService(String directoryHost, int directoryPort, String multicastGroupIp) {
@@ -45,7 +45,6 @@ public class ServerService {
 
     public void start() {
         try {
-            // 1. Criar sockets
             udpSocket = new DatagramSocket();
             udpPort = udpSocket.getLocalPort();
 
@@ -56,23 +55,15 @@ public class ServerService {
 
             System.out.printf("[Server] Portos: UDP=%d, Cliente=%d, BD=%d%n", udpPort, tcpClientPort, tcpDbPort);
 
-            // 2. Registar e aguardar confirmação
             if (!registerAndGetPrimary()) {
                 System.err.println("[Server] Falha no registo com o Directory. A terminar.");
                 return;
             }
 
-            // 3. Iniciar serviços
-            heartbeatSender = new HeartbeatSender(
-                    udpSocket,
-                    directoryHost,
-                    directoryPort,
-                    tcpClientPort,
-                    HEARTBEAT_INTERVAL_MS
-            );
+            heartbeatSender = new HeartbeatSender(udpSocket, directoryHost, directoryPort, tcpClientPort, HEARTBEAT_INTERVAL_MS);
             heartbeatSender.start();
             startDirectoryHeartbeatListener();
-            startClientListener();
+            startClientListener();       // ← Agora REJEITA se não for primary
             startDbSyncListener();
             startMulticastReceiver();
             startMulticastHeartbeat();
@@ -81,7 +72,8 @@ public class ServerService {
             if (isPrimary) {
                 System.out.println("[Server] Este é o servidor PRINCIPAL.");
             } else {
-                System.out.printf("[Server] Principal: %s:%d%n", primaryIp.getHostAddress(), primaryDbPort);
+                System.out.printf("[Server] Servidor backup. Primary: %s:%d (clientes) | BD: %d%n",
+                        primaryIp.getHostAddress(), primaryTcpClientPort, primaryDbPort);
                 downloadDatabaseFromPrimary();
             }
 
@@ -97,7 +89,7 @@ public class ServerService {
     private boolean registerAndGetPrimary() throws IOException {
         udpSocket.setSoTimeout(DIRECTORY_TIMEOUT_MS);
 
-        String msg = String.format("%s %d %d %d", MessageType.REGISTER, tcpClientPort, tcpDbPort, udpPort);
+        String msg = String.format("REGISTER %d %d %d", tcpClientPort, tcpDbPort, udpPort);
         byte[] buf = msg.getBytes();
         InetAddress dirAddr = InetAddress.getByName(directoryHost);
 
@@ -110,18 +102,27 @@ public class ServerService {
         try {
             udpSocket.receive(recv);
             String response = new String(recv.getData(), 0, recv.getLength()).trim();
-            System.out.println("[Server] Confirmação: " + response);
+            System.out.println("[Server] Confirmação do Directory: " + response);
 
             String[] parts = response.split("\\s+");
-            if (parts.length >= 3 && parts[0].equals("PRIMARY")) {
+            if (parts.length >= 4 && parts[0].equals("PRIMARY")) {
                 primaryIp = InetAddress.getByName(parts[1]);
-                primaryDbPort = Integer.parseInt(parts[2]);
-                isPrimary = primaryIp.getHostAddress().equals(InetAddress.getLocalHost().getHostAddress())
-                        && primaryDbPort == tcpDbPort;
-                return true;
+                primaryTcpClientPort = Integer.parseInt(parts[2]);
+                primaryDbPort = Integer.parseInt(parts[3]);
+
+                isPrimary = (primaryTcpClientPort == tcpClientPort);
+                if (isPrimary) {
+                    System.out.println("[Server] EU SOU O PRIMARY! Porto cliente: " + tcpClientPort);
+                    return true;
+                } else {
+                    System.out.println("[Server] Servidor backup. Primary: " + primaryIp.getHostAddress() + ":" + primaryTcpClientPort);
+                    return false;
+                }
             }
         } catch (SocketTimeoutException e) {
-            System.err.println("[Server] Timeout: Directory não responde.");
+            System.err.println("[Server] Timeout: Directory não respondeu.");
+        } catch (Exception e) {
+            System.err.println("[Server] Erro ao processar confirmação: " + e.getMessage());
         }
         return false;
     }
@@ -159,30 +160,47 @@ public class ServerService {
                     if (isPrimary) {
                         pool.submit(() -> handleClient(client));
                     } else {
-                        redirectClient(client);
+                        rejectClient(client);
                     }
                 } catch (IOException e) {
-                    if (running) System.err.println("[Server] Erro cliente: " + e.getMessage());
+                    if (running) System.err.println("[Server] Erro ao aceitar cliente: " + e.getMessage());
                 }
             }
         }, "ClientListener").start();
     }
 
-    private void handleClient(Socket client) {
+    private void rejectClient(Socket client) {
         try (PrintWriter out = new PrintWriter(client.getOutputStream(), true)) {
-            out.println("Bem-vindo! (BD ainda não implementada)");
-        } catch (IOException e) {
-            System.err.println("[Server] Erro cliente: " + e.getMessage());
-        } finally {
+            out.println("ERRO: Este servidor não é o principal. Contacte o Directory novamente.");
+            System.out.printf("[Server] Cliente rejeitado (não sou primary): %s%n", client.getRemoteSocketAddress());
+        } catch (IOException ignored) {}
+        finally {
             try { client.close(); } catch (IOException ignored) {}
         }
     }
 
-    private void redirectClient(Socket client) {
-        try (PrintWriter out = new PrintWriter(client.getOutputStream(), true)) {
-            out.println("REDIRECT " + primaryIp.getHostAddress() + " " + tcpClientPort);
-        } catch (IOException ignored) {}
-        try { client.close(); } catch (IOException ignored) {}
+    private void handleClient(Socket client) {
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream()));
+             PrintWriter out = new PrintWriter(client.getOutputStream(), true)) {
+
+            System.out.println("[Server] Cliente conectado: " + client.getRemoteSocketAddress());
+
+            out.println("Bem-vindo! (BD ainda não implementada)");
+
+            String clientMsg = in.readLine();
+            if (clientMsg != null && !clientMsg.isEmpty()) {
+                System.out.println("[Server] Recebido do cliente: " + clientMsg);
+                out.println("Mensagem recebida com sucesso!");
+            } else {
+                System.out.println("[Server] Cliente não enviou mensagem ou fechou ligação.");
+                out.println("ERRO: Mensagem vazia.");
+            }
+
+        } catch (IOException e) {
+            System.err.println("[Server] Erro ao lidar com cliente: " + e.getMessage());
+        } finally {
+            try { client.close(); } catch (IOException ignored) {}
+        }
     }
 
     private void startDbSyncListener() {
