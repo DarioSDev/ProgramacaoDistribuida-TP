@@ -1,9 +1,13 @@
 package pt.isec.pd.common;
 
+import java.io.Serial;
+import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 
-public class Question {
+public class Question implements Serializable {
+    @Serial
+    private static final long serialVersionUID = 1L;
     private String id;
     private String question;
     private String correctOption;

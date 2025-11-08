@@ -1,6 +1,10 @@
 package pt.isec.pd.common;
 
+import java.io.Serial;
+
 public class Student extends User {
+    @Serial
+    private static final long serialVersionUID = 1L;
     private String idNumber;
 
     public Student(String name, String email, String password, String idNumber) {
