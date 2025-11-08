@@ -47,7 +47,7 @@ public class DirectoryService {
 
                 switch (type) {
                     case REGISTER -> handleRegister(parts, packet.getAddress(), packet.getPort());
-                    case HEARTBEAT -> handleHeartbeat(parts, packet.getAddress());
+                    case HEARTBEAT -> handleHeartbeat(parts, packet.getAddress(), packet.getPort()); // 👈 ALTERADO
                     case REQUEST_SERVER -> handleRequest(socket, packet.getAddress(), packet.getPort());
                     case UNREGISTER -> handleUnregister(parts, packet.getAddress());
                     default -> System.out.println("[Directory] Mensagem desconhecida: " + message);
@@ -124,40 +124,55 @@ public class DirectoryService {
         }
     }
 
-    private void handleHeartbeat(String[] parts, InetAddress address) {
+// pt.isec.pd.directory.DirectoryService
+
+    private void handleHeartbeat(String[] parts, InetAddress address, int sourcePort) throws IOException {
         if (parts.length < 2) return;
 
-        int tcpClientPort = Integer.parseInt(parts[1]);
+        int tcpClientPort;
+        try {
+            tcpClientPort = Integer.parseInt(parts[1]);
+        } catch (NumberFormatException e) {
+            System.out.println("[Directory] Porto inválido no HEARTBEAT");
+            return;
+        }
+
         String key = address.getHostAddress() + ":" + tcpClientPort;
 
-        synchronized (activeServers) {
-            ServerInfo server = activeServers.stream()
-                    .filter(s -> s.getKey().equals(key))
-                    .findFirst()
-                    .orElse(null);
+        // ⚠️ NOVO: Abrir socket apenas para resposta
+        try (DatagramSocket responseSocket = new DatagramSocket()) {
 
-            if (server != null) {
-                server.setLastHeartbeat(java.time.Instant.now());
-                // Log opcional: descomentar para ver todos os heartbeats
-                // System.out.println("[Directory] Heartbeat de " + key);
+            synchronized (activeServers) {
+                ServerInfo server = activeServers.stream()
+                        .filter(s -> s.getKey().equals(key))
+                        .findFirst()
+                        .orElse(null);
+
+                if (server != null) {
+                    // 1. Atualizar o Heartbeat
+                    server.setLastHeartbeat(java.time.Instant.now());
+                    // System.out.println("[Directory] Heartbeat de " + key);
+
+                    // 2. Determinar o Primary atual (sempre o índice 0 após a ordenação do Monitor)
+                    ServerInfo primary = activeServers.get(0);
+
+                    // 3. Construir a mensagem de resposta
+                    String responseMsg = String.format("PRIMARY %s %d %d",
+                            primary.getAddress().getHostAddress(),
+                            primary.getTcpClientPort(),
+                            primary.getTcpDbPort());
+
+                    // 4. Enviar a resposta de volta para o Servidor (IP:Porta UDP que enviou o HB)
+                    byte[] buf = responseMsg.getBytes();
+                    DatagramPacket confirmPacket = new DatagramPacket(buf, buf.length, address, sourcePort);
+                    responseSocket.send(confirmPacket);
+
+                    // Opcional: Log
+                    // System.out.println("[Directory] HB respondido a " + key + " com: " + responseMsg);
+                }
             }
         }
     }
-
-//    private void handleRequest(DatagramSocket socket, InetAddress clientAddr, int clientPort) throws IOException {
-//        synchronized (activeServers) {
-//            if (activeServers.isEmpty()) {
-//                String msg = "NO_SERVER_AVAILABLE";
-//                socket.send(new DatagramPacket(msg.getBytes(), msg.length(), clientAddr, clientPort));
-//                return;
-//            }
-//
-//            ServerInfo primary = activeServers.get(0);  // SEMPRE o primary
-//            String response = primary.getAddress().getHostAddress() + " " + primary.getTcpClientPort();
-//            socket.send(new DatagramPacket(response.getBytes(), response.length(), clientAddr, clientPort));
-//            System.out.println("[Directory] Cliente redirecionado para PRIMARY: " + response);
-//        }
-//    }
 
     private void startDirectoryHeartbeatSender() {
         new Thread(() -> {
