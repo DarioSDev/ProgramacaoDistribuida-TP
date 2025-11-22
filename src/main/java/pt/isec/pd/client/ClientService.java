@@ -1,31 +1,36 @@
 package pt.isec.pd.client;
 
+import pt.isec.pd.common.User;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.*;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-public class ClientService {
-
-    private static final int MAX_SAME_SERVER_RETRY = 2; // Máximo de 2 tentativas para o mesmo servidor falhado
-    private static final long SAME_SERVER_RETRY_DELAY_MS = 20000; // 20 segundos de espera
+public class ClientService implements ClientAPI {
+    private static final int MAX_SAME_SERVER_RETRY = 2;
+    private static final long SAME_SERVER_RETRY_DELAY_MS = 20000;
     private static final int CONNECTION_TIMEOUT_MS = 5000;
 
     private final String directoryHost;
     private final int directoryPort;
 
-    // Estado da conexão TCP atual
     private String currentServerIp = null;
     private int currentServerPort = -1;
 
-    // Contagem de falhas para o mesmo IP:PORT
     private int sameServerFailureCount = 0;
+
     private Socket activeSocket = null;
     private PrintWriter out = null;
     private BufferedReader in = null;
+
     private volatile boolean running = true;
+
 
     public ClientService(String directoryHost, int directoryPort) {
         this.directoryHost = directoryHost;
@@ -33,33 +38,29 @@ public class ClientService {
     }
 
     public void start() {
-        System.out.println("[Client] Iniciando conexão com o sistema...");
+        System.out.println("[Client] Iniciando cliente REAL...");
 
         while (running) {
-
-            // Tenta estabelecer ou restabelecer a sessão
             if (activeSocket == null || activeSocket.isClosed()) {
                 if (!tryConnectAndAuthenticate()) {
-                    System.err.println("[Client] ❌ Falha crítica: Não foi possível conectar ao servidor principal. A terminar.");
+                    System.err.println("[Client] Falha crítica. A terminar cliente.");
                     break;
                 }
             }
-
-            // Se a conexão for bem-sucedida, entra no loop de escuta/sessão
             listenAndMaintainSession();
         }
+
         closeResources();
-        System.out.println("[Client] Cliente encerrado.");
+        System.out.println("[Client] Cliente REAL encerrado.");
     }
 
     private boolean tryConnectAndAuthenticate() {
-        // O loop principal agora é controlado pela lógica de failover/sleep,
-        // não por um contador arbitrário.
+
         while (running) {
             String[] serverInfo = requestActiveServer();
 
             if (serverInfo == null) {
-                System.err.println("[Client] ❌ Nenhum servidor disponível. Tentando novamente em 5s...");
+                System.err.println("[Client] Nenhum servidor disponível. Tentando de novo...");
                 sameServerFailureCount = 0;
                 sleep(5000);
                 continue;
@@ -68,80 +69,65 @@ public class ClientService {
             String newIp = serverInfo[0];
             int newPort = Integer.parseInt(serverInfo[1]);
 
-            boolean sameServer = newIp.equals(currentServerIp) && newPort == currentServerPort;
+            boolean sameServer =
+                    newIp.equals(currentServerIp) && newPort == currentServerPort;
 
-            // ⚠️ Lógica de Failover Lento (20s)
             if (sameServer && sameServerFailureCount >= 1) {
                 sameServerFailureCount++;
 
                 if (sameServerFailureCount > MAX_SAME_SERVER_RETRY) {
-                    System.err.println("[Client] ❌ Tentativas esgotadas para o mesmo servidor. Desistindo.");
+                    System.err.println("[Client] Esgotadas tentativas para o mesmo servidor.");
                     return false;
                 }
 
-                System.out.printf("[Client] 🕒 Servidor (%s:%d) é o mesmo que falhou. Esperando %d segundos antes de nova consulta... (%d/%d)%n",
-                        newIp, newPort, SAME_SERVER_RETRY_DELAY_MS / 1000, sameServerFailureCount, MAX_SAME_SERVER_RETRY);
-
+                System.out.printf("[Client] Mesmo servidor. Esperando %ds...\n",
+                        SAME_SERVER_RETRY_DELAY_MS / 1000);
                 sleep(SAME_SERVER_RETRY_DELAY_MS);
                 continue;
             }
 
-            // 3. Tentativa de Conexão TCP Imediata (para Primary Novo ou Reconexão Imediata)
             if (attemptTcpConnection(newIp, newPort)) {
-                System.out.printf("[Client] 🟢 Conexão e autenticação bem-sucedidas com %s:%d.%n", newIp, newPort);
                 currentServerIp = newIp;
                 currentServerPort = newPort;
                 sameServerFailureCount = 0;
                 return true;
             }
 
-            // 4. Falha na Conexão TCP Imediata
-            System.err.println("[Client] ⚠️ Falha na conexão TCP imediata. Assumindo falha do servidor indicado.");
-
-            // Ativa a contagem de falha para forçar a espera de 20s na próxima iteração se o Directory persistir.
+            System.err.println("[Client] Falhou a ligação TCP. Marcando servidor como falhado.");
             sameServerFailureCount = 1;
-
             sleep(2000);
         }
         return false;
     }
 
     private boolean attemptTcpConnection(String ip, int port) {
+
         closeResources();
+
         try {
             Socket socket = new Socket();
             socket.connect(new InetSocketAddress(ip, port), CONNECTION_TIMEOUT_MS);
 
-            out = new PrintWriter(socket.getOutputStream(), true);
-            in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            out  = new PrintWriter(socket.getOutputStream(), true);
+            in   = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
-            // 1. Receber mensagem de boas-vindas
             String welcome = in.readLine();
-            if (welcome == null) throw new IOException("Conexão fechada após estabelecimento.");
+            if (welcome == null) return false;
 
-            // 2. Tratar rejeição (não é Primary)
             if (welcome.startsWith("ERRO:")) {
-                System.err.println("[Client] Servidor rejeitou a conexão: " + welcome);
                 socket.close();
                 return false;
             }
 
-            System.out.println("[Client] Servidor: " + welcome);
-
-            // 3. Autenticação (ou primeira mensagem)
             out.println("CLIENT_AUTH_REQUEST");
-            System.out.println("[Client] Enviado: CLIENT_AUTH_REQUEST");
-
-            // 4. Receber confirmação
             String confirmation = in.readLine();
-            if (confirmation == null) throw new IOException("Servidor fechou após autenticação.");
-            System.out.println("[Client] Confirmação: " + confirmation);
+            if (confirmation == null) return false;
 
             activeSocket = socket;
             return true;
 
         } catch (IOException e) {
-            System.err.printf("[Client] Falha TCP com %s:%d: %s%n", ip, port, e.getMessage());
+            System.err.println("[Client] Erro ao ligar TCP: " + e.getMessage());
             return false;
         }
     }
@@ -150,97 +136,127 @@ public class ClientService {
         boolean hardFailure = false;
 
         try {
-            if (activeSocket != null && !activeSocket.isClosed()) {
-                // Set timeout to 0 (blocking read) as per the final server setup
+            if (activeSocket != null)
                 activeSocket.setSoTimeout(0);
-            }
 
-            // Assume que o Servidor mantém a ligação ativa.
             while (running && activeSocket != null && !activeSocket.isClosed()) {
                 String serverMsg = in.readLine();
 
                 if (serverMsg == null) {
-                    // Servidor encerrou a ligação (EOF)
-                    System.out.println("[Client] ℹ️ Servidor fechou a ligação (EOF). Reconectando imediatamente...");
+                    System.out.println("[Client] Servidor fechou ligação.");
                     break;
                 }
 
-                if (!serverMsg.isEmpty()) {
-                    System.out.println("[Client] [Mensagem do Servidor] " + serverMsg);
-                }
+                System.out.println("[Server] " + serverMsg);
             }
 
         } catch (IOException e) {
-            System.err.println("[Client] 🛑 Conexão TCP perdida inesperadamente: " + e.getMessage() + ". Iniciando Failover Crítico...");
+            System.err.println("[Client] Conexão perdida: " + e.getMessage());
             hardFailure = true;
+
         } finally {
             closeResources();
-            if (hardFailure) {
-                // Falha crítica: Ativa a espera de 20s se o Directory der o mesmo Primary
-                sameServerFailureCount = 1;
-            } else {
-                // Encerramento suave (EOF): Tenta reconectar imediatamente (sem espera de 20s)
-                sameServerFailureCount = 0;
-            }
+            sameServerFailureCount = hardFailure ? 1 : 0;
         }
     }
 
     private String[] requestActiveServer() {
         try (DatagramSocket socket = new DatagramSocket()) {
-            String msg = "REQUEST_SERVER";
-            byte[] buf = msg.getBytes();
-            InetAddress dirAddr = InetAddress.getByName(directoryHost);
 
-            DatagramPacket packet = new DatagramPacket(buf, buf.length, dirAddr, directoryPort);
-            socket.send(packet);
-            System.out.printf("[Client] Pedido '%s' enviado para %s:%d%n", msg, directoryHost, directoryPort);
+            byte[] buf = "REQUEST_SERVER".getBytes();
+            socket.send(new DatagramPacket(buf, buf.length,
+                    InetAddress.getByName(directoryHost), directoryPort));
 
             socket.setSoTimeout(5000);
-            byte[] recvBuf = new byte[256];
-            DatagramPacket recvPacket = new DatagramPacket(recvBuf, recvBuf.length);
-            socket.receive(recvPacket);
 
-            String response = new String(recvPacket.getData(), 0, recvPacket.getLength()).trim();
-            System.out.println("[Client] Resposta do Directory: '" + response + "'");
+            byte[] recv = new byte[256];
+            DatagramPacket packet = new DatagramPacket(recv, recv.length);
 
-            if (response.equals("NO_SERVER_AVAILABLE")) {
+            socket.receive(packet);
+
+            String response = new String(packet.getData(), 0, packet.getLength()).trim();
+
+            if (response.equals("NO_SERVER_AVAILABLE"))
                 return null;
-            }
 
-            String[] parts = response.split("\\s+");
-            if (parts.length == 2) {
-                try {
-                    Integer.parseInt(parts[1]);
-                    return parts;
-                } catch (NumberFormatException e) {
-                    System.err.println("[Client] Porto inválido recebido: " + parts[1]);
-                    return null;
-                }
-            } else {
-                System.err.println("[Client] Formato inesperado do Directory: " + response);
-                return null;
-            }
+            String[] parts = response.split(" ");
+            if (parts.length == 2) return parts;
 
-        } catch (SocketTimeoutException e) {
-            System.err.println("[Client] Timeout: Directory não respondeu em 5s.");
-        } catch (IOException e) {
-            System.err.println("[Client] Erro UDP com Directory: " + e.getMessage());
+        } catch (Exception e) {
+            System.err.println("[Client] Erro ao contactar Directory: " + e.getMessage());
         }
+
         return null;
     }
 
     private void closeResources() {
-        try { if (in != null) in.close(); } catch (IOException ignored) {}
+        try { if (in != null) in.close(); } catch (Exception ignored) {}
         try { if (out != null) out.close(); } catch (Exception ignored) {}
-        try { if (activeSocket != null) activeSocket.close(); } catch (IOException ignored) {}
-        activeSocket = null;
+        try { if (activeSocket != null) activeSocket.close(); } catch (Exception ignored) {}
+
         in = null;
         out = null;
+        activeSocket = null;
     }
 
-    private void sleep(long millis) {
-        try { TimeUnit.MILLISECONDS.sleep(millis); } catch (InterruptedException ignored) {
-            Thread.currentThread().interrupt();
-        }
+    private void sleep(long ms) {
+        try { TimeUnit.MILLISECONDS.sleep(ms); } catch (InterruptedException ignored) {}
+    }
+
+
+    @Override
+    public synchronized String sendLogin(String email, String pwd) throws IOException {
+        if (out == null)
+            throw new IOException("Ligação TCP não está ativa.");
+
+        out.println("LOGIN " + email + " " + pwd);
+        return in.readLine();
+    }
+
+    // ===============================================================
+    // A PARTIR DAQUI: MÉTODOS A IMPLEMENTAR MAIS TARDE
+    // (por agora lançam UnsupportedOperationException para o TP REAL)
+    // ===============================================================
+
+    @Override
+    public QuestionData getQuestionByCode(String code) {
+        throw new UnsupportedOperationException("getQuestionByCode ainda não implementado no ClientServiceReal.");
+    }
+
+    @Override
+    public boolean submitAnswer(User user, String code, int index) {
+        throw new UnsupportedOperationException("submitAnswer ainda não implementado no ClientServiceReal.");
+    }
+
+    @Override
+    public String validateQuestionCode(String code) {
+        throw new UnsupportedOperationException("validateQuestionCode ainda não implementado no ClientServiceReal.");
+    }
+
+    @Override
+    public AnswerResultData getAnswerResult(User user, String code) {
+        throw new UnsupportedOperationException("getAnswerResult ainda não implementado no ClientServiceReal.");
+    }
+
+    @Override
+    public List<HistoryItem> getStudentHistory(User user, LocalDate start, LocalDate end, String filter) {
+        throw new UnsupportedOperationException("getStudentHistory ainda não implementado no ClientServiceReal.");
+    }
+
+    @Override
+    public List<TeacherQuestionItem> getTeacherQuestions(User user, String filter) {
+        throw new UnsupportedOperationException("getTeacherQuestions ainda não implementado no ClientServiceReal.");
+    }
+
+    @Override
+    public boolean createQuestion(User user, String text, List<String> options,
+                                  int correctIndex, LocalDate sd, LocalTime st,
+                                  LocalDate ed, LocalTime et) {
+        throw new UnsupportedOperationException("createQuestion ainda não implementado no ClientServiceReal.");
+    }
+
+    @Override
+    public TeacherResultsData getQuestionResults(User user, String questionCode) {
+        throw new UnsupportedOperationException("getQuestionResults ainda não implementado no ClientServiceReal.");
     }
 }
