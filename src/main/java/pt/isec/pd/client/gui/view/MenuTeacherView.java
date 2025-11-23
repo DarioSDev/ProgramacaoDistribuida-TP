@@ -5,7 +5,6 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Cursor;
 import javafx.scene.control.Button;
-import javafx.scene.control.Label;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
@@ -27,7 +26,7 @@ public class MenuTeacherView extends BorderPane {
     private static final String COLOR_DROPDOWN_TEXT = "#1E1E1E";
     private static final String COLOR_BUTTON_TEXT = "#000000";
     private static final int DROPDOWN_WIDTH = 200;
-    private static final double DROPDOWN_OFFSET_Y = 130;
+    private static final double DROPDOWN_OFFSET_Y = 100;
     private static final String COLOR_HOVER = "#F4B27C";
 
     private static final String SVG_NEW_QUESTION =
@@ -65,14 +64,15 @@ public class MenuTeacherView extends BorderPane {
         setStyle("-fx-background-color: " + COLOR_BG + ";");
 
         BorderPane mainLayout = new BorderPane();
-        mainLayout.setTop(createHeader());
+        mainLayout.setTop(new HeaderView(this::toggleDropdown));
         mainLayout.setCenter(createButtons());
 
         setupDropdown();
 
         StackPane root = new StackPane(mainLayout, dropdownMenu);
         StackPane.setAlignment(dropdownMenu, Pos.TOP_RIGHT);
-
+        dropdownMenu.setTranslateX(-40);
+        dropdownMenu.setTranslateY(100);
         this.setCenter(root);
 
         root.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> {
@@ -95,73 +95,6 @@ public class MenuTeacherView extends BorderPane {
 
         dropdownMenu.setOnMousePressed(MouseEvent::consume);
 
-    }
-
-
-    private BorderPane createHeader() {
-        Label title = new Label("Questia");
-        title.setStyle(String.format("""
-        -fx-font-size: 80px;
-        -fx-text-fill: %s;
-        -fx-font-weight: bold;
-    """, COLOR_PRIMARY));
-
-        VBox titleArea = new VBox(0, title);
-        titleArea.setAlignment(Pos.CENTER_LEFT);
-
-        StackPane menuButton = createMenuButton();
-
-
-        menuButton.setOnMouseClicked(e -> {
-            e.consume();
-            toggleDropdown();
-        });
-
-        dropdownMenu.setTranslateX(-40);
-        dropdownMenu.setTranslateY(DROPDOWN_OFFSET_Y);
-
-        BorderPane header = new BorderPane();
-        header.setLeft(titleArea);
-        header.setRight(menuButton);
-
-        BorderPane.setAlignment(titleArea, Pos.CENTER_LEFT);
-        BorderPane.setAlignment(menuButton, Pos.CENTER_RIGHT);
-
-        BorderPane.setMargin(titleArea, new Insets(40, 0, 0, 40));
-        BorderPane.setMargin(menuButton, new Insets(35, 40, 0, 0));
-
-        return header;
-    }
-
-    private StackPane createMenuButton() {
-        StackPane menuButton = new StackPane();
-        menuButton.setCursor(Cursor.HAND);
-
-        final double BUTTON_SIZE = 50;
-        menuButton.setPrefWidth(BUTTON_SIZE);
-        menuButton.setPrefHeight(BUTTON_SIZE);
-        menuButton.setMinWidth(BUTTON_SIZE);
-        menuButton.setMaxWidth(BUTTON_SIZE);
-        menuButton.setMinHeight(BUTTON_SIZE);
-        menuButton.setMaxHeight(BUTTON_SIZE);
-
-        menuButton.setPadding(new Insets(11));
-
-        menuButton.setStyle(String.format("""
-            -fx-background-color: %s;
-            -fx-background-radius: 10;
-        """, COLOR_PRIMARY));
-
-        SVGPath menuIcon = new SVGPath();
-        menuIcon.setContent(SVG_MENU);
-        menuIcon.setFill(Color.BLACK);
-
-        menuIcon.setScaleX(1.0);
-        menuIcon.setScaleY(1.0);
-
-        menuButton.getChildren().add(menuIcon);
-
-        return menuButton;
     }
 
     private VBox createButtons() {
