@@ -79,6 +79,14 @@ public class Question implements Serializable {
         return endTime;
     }
 
+    public void setStartTime(LocalDateTime startTime) {
+        this.startTime = startTime;
+    }
+
+    public void setEndTime(LocalDateTime endTime) {
+        this.endTime = endTime;
+    }
+
     public boolean isActive() {
         LocalDateTime now = LocalDateTime.now();
         return now.isAfter(startTime) && now.isBefore(endTime);

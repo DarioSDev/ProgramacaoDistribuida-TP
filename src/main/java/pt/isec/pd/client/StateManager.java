@@ -4,6 +4,7 @@ import javafx.scene.Scene;
 import javafx.scene.layout.StackPane;
 import javafx.stage.Stage;
 import pt.isec.pd.client.gui.view.*;
+import pt.isec.pd.common.Question;
 import pt.isec.pd.common.User;
 
 public class StateManager {
@@ -62,4 +63,9 @@ public class StateManager {
         if ("teacher".equalsIgnoreCase(user.getRole()))
             setScene(new EditProfileTeacherView(client, this, user), "Questia - Edit Profile");
     }
+
+    public void showEditQuestionView(User user, Question question) {
+        setScene(new EditQuestionView(client, this, user, question), "Edit Question");
+    }
+
 }

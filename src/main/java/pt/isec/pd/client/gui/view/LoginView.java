@@ -1,8 +1,10 @@
 package pt.isec.pd.client.gui.view;
 
 import javafx.application.Platform;
+import javafx.beans.binding.Bindings;
 import javafx.event.ActionEvent;
 import javafx.event.EventHandler;
+import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.BorderPane;
@@ -28,31 +30,54 @@ public class LoginView extends BorderPane {
                     "-fx-cursor: hand;" +
                     "-fx-background-radius: 8px;";
 
-
     public LoginView(ClientAPI clientService, StateManager stateManager) {
         this.clientService = clientService;
         this.stateManager = stateManager;
 
-        this.setStyle("-fx-background-color: " + COLOR_BG + ";");
-        this.setCenter(createCenter());
+        setStyle("-fx-background-color: " + COLOR_BG + ";");
+
+        VBox content = createCenter();
+        setCenter(content);
+
+        paddingProperty().bind(
+                Bindings.createObjectBinding(
+                        () -> new Insets(getHeight() * 0.08, 0, getHeight() * 0.08, 0),
+                        heightProperty()
+                )
+        );
 
         setupActions();
     }
 
     private VBox createCenter() {
-
         Label title = new Label("Questia");
-        title.setStyle(
-                "-fx-font-size: 110px;" +
-                        "-fx-text-fill: " + COLOR_PRIMARY + ";" +
-                        "-fx-font-weight: bold;"
+
+        title.styleProperty().bind(
+                Bindings.createStringBinding(
+                        () -> String.format(
+                                "-fx-font-size: %.0fpx; -fx-text-fill: %s; -fx-font-weight: bold;",
+                                Math.max(48, getHeight() * 0.13),
+                                COLOR_PRIMARY
+                        ),
+                        heightProperty()
+                )
         );
 
         styleInput(emailField, "Email");
         styleInput(passwordField, "Password");
 
-        VBox inputs = new VBox(25, emailField, passwordField);
+        VBox inputs = new VBox(20, emailField, passwordField);
         inputs.setAlignment(Pos.CENTER);
+
+        emailField.prefWidthProperty().bind(
+                Bindings.min(400, widthProperty().multiply(0.35))
+        );
+        emailField.maxWidthProperty().bind(emailField.prefWidthProperty());
+
+        passwordField.prefWidthProperty().bind(
+                Bindings.min(400, widthProperty().multiply(0.35))
+        );
+        passwordField.maxWidthProperty().bind(passwordField.prefWidthProperty());
 
         loginButton.setStyle(
                 BUTTON_STYLE +
@@ -61,7 +86,6 @@ public class LoginView extends BorderPane {
                         "-fx-background-color: " + COLOR_PRIMARY + ";" +
                         "-fx-text-fill: #0F0F0F;"
         );
-        loginButton.setPrefWidth(150);
 
         registerButton.setStyle(
                 BUTTON_STYLE +
@@ -74,15 +98,27 @@ public class LoginView extends BorderPane {
                         "-fx-background-radius: 8px;" +
                         "-fx-border-radius: 8px;"
         );
-        registerButton.setPrefWidth(100);
+
+        loginButton.prefWidthProperty().bind(
+                Bindings.min(220, widthProperty().multiply(0.17))
+        );
+        registerButton.prefWidthProperty().bind(
+                Bindings.min(180, widthProperty().multiply(0.14))
+        );
 
         messageLabel.setStyle("-fx-text-fill: red; -fx-font-weight: bold;");
 
-        VBox buttons = new VBox(50, loginButton, registerButton, messageLabel);
+        VBox buttons = new VBox();
         buttons.setAlignment(Pos.CENTER);
+        buttons.getChildren().addAll(loginButton, registerButton, messageLabel);
 
-        VBox content = new VBox(50, title, inputs, buttons);
+        buttons.spacingProperty().bind(heightProperty().multiply(0.03));
+
+        VBox content = new VBox();
         content.setAlignment(Pos.CENTER);
+        content.getChildren().addAll(title, inputs, buttons);
+
+        content.spacingProperty().bind(heightProperty().multiply(0.05));
 
         return content;
     }
@@ -98,8 +134,6 @@ public class LoginView extends BorderPane {
                         "-fx-background-radius: 8px;" +
                         "-fx-border-color: transparent;"
         );
-        field.setPrefWidth(250);
-        field.setMaxWidth(250);
     }
 
     private void setupActions() {
@@ -126,20 +160,15 @@ public class LoginView extends BorderPane {
                 Platform.runLater(() -> {
                     if (response == null) {
                         setMessage("Servidor não respondeu.", true);
-                    }
-                    else if (response.startsWith("OK")) {
-
-                        // Espera-se formato: OK;role;name;extra
+                    } else if (response.startsWith("OK")) {
                         String[] parts = response.split(";");
-                        String role  = parts.length > 1 ? parts[1] : "student";
-                        String name  = parts.length > 2 ? parts[2] : email;
+                        String role = parts.length > 1 ? parts[1] : "student";
+                        String name = parts.length > 2 ? parts[2] : email;
                         String extra = parts.length > 3 ? parts[3] : "";
 
                         User u = new User(name, email, password, role, extra);
-
                         stateManager.showMenu(u);
-                    }
-                    else {
+                    } else {
                         setMessage("Credenciais inválidas.", true);
                     }
 

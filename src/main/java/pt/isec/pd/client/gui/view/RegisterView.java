@@ -22,7 +22,7 @@ public class RegisterView extends BorderPane {
     private final TextField emailField = new TextField();
     private final PasswordField passwordField = new PasswordField();
     private final PasswordField confirmPasswordField = new PasswordField();
-    private final TextField roleExtraField = new TextField(); // muda entre Student/Teacher
+    private final TextField roleExtraField = new TextField();
 
     private final Button registerButton = new Button("Register");
     private final Button cancelButton = new Button("Cancel");
@@ -73,16 +73,19 @@ public class RegisterView extends BorderPane {
             -fx-text-fill: #FF7A00;
             -fx-font-weight: bold;
         """);
-        HBox titleBox = new HBox(title);
-        titleBox.setPadding(new Insets(20, 0, 0, 50));
-        titleBox.setAlignment(Pos.TOP_LEFT);
-        setTop(titleBox);
+        BorderPane topBar = new BorderPane();
+
+        BorderPane.setAlignment(title, Pos.TOP_LEFT);
+        topBar.setLeft(title);
+        topBar.setPadding(new Insets(20, 20, 0, 20));
+
+        setTop(topBar);
 
         setCenter(createContent());
 
         cancelButton.setStyle("""
     -fx-background-color: transparent;
-    -fx-text-fill: white; // Renderizado como cinza-claro no seu tema
+    -fx-text-fill: white;
     -fx-border-color: #FF0000;
     -fx-border-width: 2;
     -fx-background-radius: 5;
