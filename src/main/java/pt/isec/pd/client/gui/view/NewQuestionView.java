@@ -1,5 +1,4 @@
 package pt.isec.pd.client.gui.view;
-
 import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -14,7 +13,6 @@ import pt.isec.pd.client.StateManager;
 import pt.isec.pd.common.User;
 import java.util.ArrayList;
 import java.util.List;
-import pt.isec.pd.client.gui.view.HeaderView;
 
 public class NewQuestionView extends BorderPane {
 
@@ -29,6 +27,9 @@ public class NewQuestionView extends BorderPane {
     private static final String COLOR_HOVER = "#F4B27C";
     private static final int DROPDOWN_WIDTH = 200;
     private static final double DROPDOWN_OFFSET_Y = 100;
+    private StackPane overlay;
+    private VBox submitPopup;
+
 
     private static final String SVG_MENU =
             "M3.59615 7.25H17.9038C18.2331 7.25 18.5 6.91421 18.5 6.5C18.5 6.08579 18.2331 5.75 17.9038 5.75H3.59615ZM3 11C3 10.5858 3.26691 10.25 3.59615 10.25H17.9038C18.2331 10.25 18.5 10.5858 18.5 11C18.5 11.4142 18.2331 11.75 17.9038 11.75H3.59615C3.26691 11.75 3 11.4142 3 11ZM3.59615 14.75C3.26691 14.75 3 15.0858 3 15.5C3 15.9142 3.26691 16.25 3.59615 16.25H17.9038C18.2331 16.25 18.5 15.9142 18.5 15.5C18.5 15.0858 18.2331 14.75 17.9038 14.75H3.59615Z";
@@ -82,178 +83,26 @@ public class NewQuestionView extends BorderPane {
 
         setStyle("-fx-background-color: " + COLOR_BG + ";");
 
-        BorderPane rootLayout = new BorderPane();
+        BorderPane layout = new BorderPane();
 
-        rootLayout.setTop(new HeaderView(this::toggleDropdown));
+        HeaderView header = new HeaderView(stateManager, user);
+        layout.setTop(header);
 
         VBox center = createCenterContent();
-        center.setMaxHeight(Region.USE_PREF_SIZE);
         center.setAlignment(Pos.TOP_CENTER);
+        layout.setCenter(center);
 
-        BorderPane.setAlignment(center, Pos.TOP_CENTER);
-        rootLayout.setCenter(center);
+        StackPane root = new StackPane(layout);
 
+        header.attachToRoot(root);
 
-        setupDropdown();
+        this.setCenter(root);
 
-        dropdownMenu.setTranslateX(-40);
-        dropdownMenu.setTranslateY(DROPDOWN_OFFSET_Y);
-
-        StackPane mainStack = new StackPane(rootLayout, dropdownMenu);
-        StackPane.setAlignment(dropdownMenu, Pos.TOP_RIGHT);
-        this.setCenter(mainStack);
-
-        mainStack.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> {
-            if (!dropdownVisible)
-                return;
-
-            Bounds b = dropdownMenu.localToScene(dropdownMenu.getBoundsInLocal());
-            double x = e.getSceneX();
-            double y = e.getSceneY();
-
-            boolean inside =
-                    x >= b.getMinX() && x <= b.getMaxX() &&
-                            y >= b.getMinY() && y <= b.getMaxY();
-
-            if (!inside)
-                toggleDropdown();
-        });
-
-        dropdownMenu.setOnMousePressed(MouseEvent::consume);
+        createSubmitPopup();
+        root.getChildren().add(overlay);
+        StackPane.setAlignment(overlay, Pos.CENTER);
 
         initOptions();
-    }
-
-
-    private BorderPane createHeader() {
-        Label title = new Label("Questia");
-        title.setStyle("""
-                -fx-font-size: 80px;
-                -fx-font-weight: bold;
-                -fx-text-fill: #FF7A00;
-                """);
-
-        VBox titleBox = new VBox(title);
-        titleBox.setAlignment(Pos.CENTER_LEFT);
-        BorderPane.setMargin(titleBox, new Insets(40, 0, 0, 40));
-
-        StackPane menuButton = createMenuButton();
-        BorderPane.setMargin(menuButton, new Insets(35, 40, 0, 0));
-
-        menuButton.setOnMouseClicked(e -> {
-            e.consume();
-            toggleDropdown();
-        });
-
-        BorderPane header = new BorderPane();
-        header.setLeft(titleBox);
-        header.setRight(menuButton);
-        return header;
-    }
-
-    private StackPane createMenuButton() {
-        StackPane menuButton = new StackPane();
-        menuButton.setCursor(Cursor.HAND);
-
-        final double BUTTON_SIZE = 50;
-        menuButton.setPrefSize(BUTTON_SIZE, BUTTON_SIZE);
-        menuButton.setMinSize(BUTTON_SIZE, BUTTON_SIZE);
-        menuButton.setMaxSize(BUTTON_SIZE, BUTTON_SIZE);
-
-        menuButton.setPadding(new Insets(11));
-        menuButton.setStyle(String.format("""
-                -fx-background-color: %s;
-                -fx-background-radius: 10;
-                """, COLOR_PRIMARY));
-
-        SVGPath menuIcon = new SVGPath();
-        menuIcon.setContent(SVG_MENU);
-        menuIcon.setFill(Color.BLACK);
-
-        menuButton.getChildren().add(menuIcon);
-        return menuButton;
-    }
-
-    private void setupDropdown() {
-        dropdownMenu.setVisible(false);
-        dropdownMenu.setManaged(false);
-        dropdownMenu.setSpacing(0);
-        dropdownMenu.setPadding(Insets.EMPTY);
-        dropdownMenu.setFillWidth(true);
-        dropdownMenu.setPrefWidth(DROPDOWN_WIDTH);
-        dropdownMenu.setMaxWidth(Region.USE_PREF_SIZE);
-        dropdownMenu.setMinWidth(Region.USE_PREF_SIZE);
-
-        dropdownMenu.setStyle("""
-                -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.35), 12, 0.1, 0, 3);
-                -fx-background-color: transparent;
-                """);
-
-        Button profileBtn = createDropdownButton("Profile", SVG_PROFILE, COLOR_DROPDOWN_PROFILE);
-        profileBtn.setOnAction(e -> {
-            toggleDropdown();
-            if (stateManager != null)
-                stateManager.showEditProfile(user);
-        });
-        profileBtn.setStyle(profileBtn.getStyle() + "-fx-background-radius: 12 12 0 0;");
-
-        Button logoutBtn = createDropdownButton("Logout", SVG_LOGOUT, COLOR_DROPDOWN_PROFILE);
-        logoutBtn.setOnAction(e -> {
-            toggleDropdown();
-            if (stateManager != null)
-                stateManager.showLogin();
-        });
-        logoutBtn.setStyle(logoutBtn.getStyle() + "-fx-background-radius: 0 0 12 12;");
-
-        dropdownMenu.getChildren().setAll(profileBtn, logoutBtn);
-
-        applyDropdownHoverEffect(profileBtn, COLOR_DROPDOWN_PROFILE);
-        applyDropdownHoverEffect(logoutBtn, COLOR_DROPDOWN_PROFILE);
-    }
-
-    private Button createDropdownButton(String text, String svgPathContent, String bgColor) {
-        Button btn = new Button(text);
-        btn.setCursor(Cursor.HAND);
-        btn.setBorder(Border.EMPTY);
-        btn.setGraphic(createDropdownIcon(svgPathContent));
-        btn.setGraphicTextGap(30);
-        btn.setMaxWidth(Double.MAX_VALUE);
-        btn.setAlignment(Pos.CENTER_LEFT);
-
-        btn.setStyle(String.format("""
-                -fx-background-color: %s;
-                -fx-font-size: 16px;
-                -fx-text-fill: %s;
-                -fx-padding: 10 22;
-                """, bgColor, "#1E1E1E"));
-
-        return btn;
-    }
-
-    private SVGPath createDropdownIcon(String svgContent) {
-        SVGPath svg = new SVGPath();
-        svg.setContent(svgContent);
-        svg.setFill(Color.web(COLOR_PRIMARY));
-        return svg;
-    }
-
-    private void applyDropdownHoverEffect(Button btn, String originalBgColor) {
-        String originalStyle = btn.getStyle();
-        String hoverBgColorStyle = String.format("-fx-background-color: %s;", COLOR_HOVER);
-        String originalBgColorStyle = String.format("-fx-background-color: %s;", originalBgColor);
-
-        btn.setOnMouseEntered(e -> {
-            String newStyle = originalStyle.replace(originalBgColorStyle, hoverBgColorStyle);
-            btn.setStyle(newStyle);
-        });
-
-        btn.setOnMouseExited(e -> btn.setStyle(originalStyle));
-    }
-
-    private void toggleDropdown() {
-        dropdownVisible = !dropdownVisible;
-        dropdownMenu.setVisible(dropdownVisible);
-        dropdownMenu.setManaged(dropdownVisible);
     }
 
     private VBox createCenterContent() {
@@ -667,12 +516,9 @@ public class NewQuestionView extends BorderPane {
     }
 
     private void handleSubmit() {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.setTitle("Submit");
-        alert.setHeaderText(null);
-        alert.setContentText("Submit ainda não está implementado (versão base – só UI).");
-        alert.showAndWait();
+        overlay.setVisible(true);
     }
+
 
     private static class OptionRow {
         final Label letterLabel;
@@ -690,5 +536,69 @@ public class NewQuestionView extends BorderPane {
             this.radioButton = radioButton;
             this.optionLine = optionLine;
         }
+    }
+    private void createSubmitPopup() {
+        overlay = new StackPane();
+        overlay.setStyle("-fx-background-color: rgba(0,0,0,0.45);");
+        overlay.setVisible(false);
+        overlay.setPickOnBounds(true);
+
+        VBox box = new VBox(12);
+        box.setAlignment(Pos.CENTER);
+        box.setPadding(new Insets(25));
+        box.setMinWidth(360);
+        box.setPrefWidth(360);
+        box.setMaxWidth(360);
+
+        box.setMinHeight(200);
+        box.setPrefHeight(200);
+        box.setMaxHeight(200);
+
+
+        box.setStyle("""
+            -fx-background-color: #D9D9D9;
+            -fx-background-radius: 14;
+            -fx-border-color: #FF7A00;
+            -fx-border-width: 3;
+            -fx-border-radius: 14;
+            -fx-padding: 30;
+            """);
+
+
+        SVGPath check = new SVGPath();
+        check.setContent("M16 2.66675C8.66663 2.66675 2.66663 8.66675 2.66663 16.0001C2.66663 23.3334 8.66663 29.3334 16 29.3334C23.3333 29.3334 29.3333 23.3334 29.3333 16.0001C29.3333 8.66675 23.3333 2.66675 16 2.66675ZM14.4 22.4001L9.46663 17.4667L11.3333 15.6001L14.2666 18.5334L22 10.4001L24 12.4001L14.4 22.4001Z");
+        check.setFill(Color.BLACK);
+        check.setScaleX(1.2);
+        check.setScaleY(1.2);
+
+        Label title = new Label("Question Submitted!");
+        title.setStyle("""
+        -fx-font-size: 16px;
+        -fx-text-fill: black;
+        -fx-font-weight: bold;
+    """);
+
+        Label codeLabel = new Label("Code");
+        codeLabel.setStyle("-fx-text-fill: black; -fx-font-size: 14px;");
+
+        Label codeNumber = new Label("123456");
+        codeNumber.setStyle("""
+        -fx-text-fill: #FF7A00;
+        -fx-font-size: 18px;
+        -fx-font-weight: bold;
+    """);
+
+        box.getChildren().addAll(check, title, codeLabel, codeNumber);
+
+        submitPopup = box;
+        overlay.getChildren().add(submitPopup);
+        StackPane.setAlignment(submitPopup, Pos.CENTER);
+
+        overlay.setOnMouseClicked(e -> {
+            if (e.getTarget() == overlay) {
+                overlay.setVisible(false);
+            }
+        });
+
     }
 }

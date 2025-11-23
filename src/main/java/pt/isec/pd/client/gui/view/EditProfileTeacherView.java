@@ -51,48 +51,29 @@ public class EditProfileTeacherView extends BorderPane {
                     + "13.8798C3.8575 14.1698 4.3375 14.1698 4.6275 13.8798C4.9175 "
                     + "13.5898 4.9175 13.1098 4.6275 12.8198L2.5575 10.7498H6.9975V9.2498H2.5575Z";
 
-    private static final String SVG_PROFILE =
-            "M23.3792 3.50708H20.4692L17.1526 0.190441C16.8987 -0.0634803 16.4871 "
-                    + "-0.0634803 16.2332 0.190441L12.9166 3.50698H10.0065C9.67322 "
-                    + "3.50698 9.40308 3.77717 9.40308 4.11045V14.6245H23.3792C23.7125 "
-                    + "14.6245 23.9827 14.3543 23.9827 14.021V4.11054C23.9827 3.77726 "
-                    + "23.7125 3.50708 23.3792 3.50708Z";
+    private static final String SVG_HOME =
+            "M10 20V14H14V20H19V12H22L12 3 2 12H5V20H10Z";
 
     public EditProfileTeacherView(ClientAPI client, StateManager stateManager, User user) {
         this.client = client;
         this.stateManager = stateManager;
         this.user = user;
 
-        this.setStyle("-fx-background-color: " + COLOR_BG + ";");
+        setStyle("-fx-background-color: " + COLOR_BG + ";");
 
         BorderPane main = new BorderPane();
 
-         main.setTop(new HeaderView(this::toggleDropdown));
+        HeaderView header = new HeaderView(stateManager, user);
+        main.setTop(header);
 
         main.setCenter(buildContent());
-
         main.setBottom(buildFooter());
 
-        setupDropdown();
+        StackPane root = new StackPane(main);
 
-        StackPane root = new StackPane(main, dropdownMenu);
-        StackPane.setAlignment(dropdownMenu, Pos.TOP_RIGHT);
-        dropdownMenu.setTranslateX(-40);
-        dropdownMenu.setTranslateY(100);
+        header.attachToRoot(root);
 
         this.setCenter(root);
-
-        root.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> {
-            if (!dropdownVisible) return;
-
-            Bounds b = dropdownMenu.localToScene(dropdownMenu.getBoundsInLocal());
-            double x = e.getSceneX(), y = e.getSceneY();
-
-            boolean inside = (x >= b.getMinX() && x <= b.getMaxX()
-                    && y >= b.getMinY() && y <= b.getMaxY());
-
-            if (!inside) toggleDropdown();
-        });
 
         loadUserData();
     }
@@ -128,7 +109,7 @@ public class EditProfileTeacherView extends BorderPane {
     """);
 
         // --- MENU ---
-        Button menuBtn = createDropdownButton("Menu", SVG_PROFILE, COLOR_DROPDOWN_PROFILE);
+        Button menuBtn = createDropdownButton("Home", SVG_HOME, COLOR_DROPDOWN_PROFILE);
         menuBtn.setStyle(menuBtn.getStyle() + "-fx-background-radius: 12 12 0 0;");
 
         menuBtn.setOnAction(e -> {

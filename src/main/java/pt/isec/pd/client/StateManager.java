@@ -54,8 +54,8 @@ public class StateManager {
         setScene(new NewQuestionView(client, this, user), "Questia - New Question");
     }
 
-    public void showTeacherQuestions(User user) {
-        setScene(new TeacherQuestionsView(client, this, user), "Questia - Questions");
+    public void showQuestionHistory(User user) {
+        setScene(new QuestionHistoryView(client, this, user), "Questia - Question History");
     }
 
     public void showEditProfile(User user) {
