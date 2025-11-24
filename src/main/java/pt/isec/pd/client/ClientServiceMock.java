@@ -115,6 +115,7 @@ public class ClientServiceMock implements ClientAPI {
     public TeacherResultsData getQuestionResults(User user, String code) {
         TeacherResultsData dataABC = new TeacherResultsData(
                 "What is the capital of France?",
+                List.of("Berlin", "Madrid", "Paris", "Lisbon"),
                 "c",
                 3,
                 List.of(
@@ -126,6 +127,7 @@ public class ClientServiceMock implements ClientAPI {
 
         TeacherResultsData dataMath = new TeacherResultsData(
                 "2 + 2 = ?",
+                List.of("3", "4", "5", "22"),
                 "b",
                 2,
                 List.of(

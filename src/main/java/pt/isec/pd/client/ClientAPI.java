@@ -51,6 +51,7 @@ public interface ClientAPI {
 
     record TeacherResultsData(
             String questionText,
+            List<String> options,
             String correctOptionLetter,
             int totalAnswers,
             List<StudentAnswerInfo> answers

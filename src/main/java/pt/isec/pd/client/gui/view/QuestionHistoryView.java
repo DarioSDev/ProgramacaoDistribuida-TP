@@ -196,7 +196,7 @@ public class QuestionHistoryView extends BorderPane {
         btnUp.setPadding(new Insets(8, 0, 0, 0));
         btnUp.setPrefHeight(40);
         btnUp.setOnMouseClicked(e -> {
-            double lineHeight = 28.0;
+            double lineHeight = 30.0;
             double scrollableHeight = rowsBox.getHeight() - TABLE_HEIGHT;
             if (scrollableHeight > 0) {
                 double increment = lineHeight / scrollableHeight;
@@ -209,7 +209,7 @@ public class QuestionHistoryView extends BorderPane {
         btnDown.setPadding(new Insets(0, 0, 8, 0));
         btnDown.setPrefHeight(40);
         btnDown.setOnMouseClicked(e -> {
-            double lineHeight = 28.0;
+            double lineHeight = 30.0;
             double scrollableHeight = rowsBox.getHeight() - TABLE_HEIGHT;
             if (scrollableHeight > 0) {
                 double increment = lineHeight / scrollableHeight;
@@ -261,7 +261,7 @@ public class QuestionHistoryView extends BorderPane {
 
             HBox row = new HBox(0);
             row.setAlignment(Pos.CENTER_LEFT);
-            row.setMinHeight(28);
+            row.setMinHeight(30);
             row.setMaxWidth(Double.MAX_VALUE);
 
             Label date = new Label(q.getStartTime().toLocalDate().format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
@@ -278,7 +278,22 @@ public class QuestionHistoryView extends BorderPane {
 
             Label answers = new Label(Integer.toString(item.answers));
             answers.setStyle("-fx-text-fill:white; -fx-font-size:12px;");
-            row.getChildren().add(createCell(answers, W_ANSWERS, Pos.CENTER));
+            answers.setCursor(Cursor.HAND);
+
+            answers.setOnMouseClicked(e -> {
+                e.consume();
+                stateManager.showCheckQuestionDataView(user, item.question.getId());
+            });
+
+            StackPane answersCell = createCell(answers, W_ANSWERS, Pos.CENTER);
+
+            answersCell.setOnMouseClicked(e -> {
+                e.consume();
+                stateManager.showCheckQuestionDataView(user, item.question.getId());
+            });
+
+            row.getChildren().add(answersCell);
+
 
             row.setOnMouseClicked(e -> stateManager.showEditQuestionView(user, item.question));
 
@@ -409,7 +424,7 @@ public class QuestionHistoryView extends BorderPane {
         field.setFocusTraversable(false);
         field.setPromptText(placeholder);
         field.setPrefWidth(200);
-        field.setMinHeight(28);
+        field.setMinHeight(30);
         field.setStyle("-fx-background-color: white; -fx-text-fill: black; -fx-font-size: 13px; -fx-background-radius: 8;");
 
         field.textProperty().addListener((obs, oldV, newV) -> {
