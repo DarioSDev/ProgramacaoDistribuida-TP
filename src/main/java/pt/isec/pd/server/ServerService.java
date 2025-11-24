@@ -428,8 +428,7 @@ public class ServerService {
 
         } catch (IOException e) {
             System.err.println("[Server] Falha ao sincronizar BD: " + e.getMessage());
-            // Nota: Se falhar, o Backup fica sem BD válida por enquanto.
-            // Poderia tentar carregar uma antiga localmente como fallback.
+            shutdown();
         }
     }
 
