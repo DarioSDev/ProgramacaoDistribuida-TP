@@ -90,7 +90,6 @@ public class HeaderView extends BorderPane {
         StackPane btn = new StackPane();
         btn.setCursor(Cursor.HAND);
 
-        // Botão mais pequeno
         btn.setPrefSize(40, 40);
         btn.setMinSize(40, 40);
         btn.setMaxSize(40, 40);
@@ -100,7 +99,6 @@ public class HeaderView extends BorderPane {
         -fx-background-radius: 10;
     """);
 
-        // Linhas pequenas e mais finas
         VBox lines = new VBox(3);
         lines.setAlignment(Pos.CENTER);
 

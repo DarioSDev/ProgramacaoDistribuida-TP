@@ -68,8 +68,8 @@ public class StateManager {
         setScene(new EditQuestionView(client, this, user, question), "Edit Question");
     }
 
-    public void showCheckQuestionDataView(User user, String questionCode) {
-        setScene(new CheckQuestionDataView(client, this, user, questionCode),
+    public void showCheckQuestionDataView(User user, ClientAPI.TeacherResultsData results) {
+        setScene(new CheckQuestionDataView(client, this, user, results),
                 "Questia - Question Results");
     }
 

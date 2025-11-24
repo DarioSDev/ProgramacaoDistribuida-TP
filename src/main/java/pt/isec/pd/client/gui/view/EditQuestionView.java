@@ -190,7 +190,7 @@ public class EditQuestionView extends BorderPane {
         saveButton.setOnAction(e -> handleSave());
         backButton.setOnAction(e -> {
             if (stateManager != null)
-                stateManager.showTeacherMenu(user);
+                stateManager.showQuestionHistory(user);
         });
 
         VBox buttonsBox = new VBox(40, saveButton, backButton);
@@ -664,7 +664,7 @@ public class EditQuestionView extends BorderPane {
             if (e.getTarget() == overlay) {
                 overlay.setVisible(false);
                 if (stateManager != null)
-                    stateManager.showTeacherMenu(user);
+                    stateManager.showQuestionHistory(user);
             }
         });
     }

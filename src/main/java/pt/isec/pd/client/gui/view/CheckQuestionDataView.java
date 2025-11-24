@@ -28,7 +28,6 @@ public class CheckQuestionDataView extends BorderPane {
     private final ClientAPI client;
     private final StateManager stateManager;
     private final User user;
-    private final String questionCode;
 
     private ClientAPI.TeacherResultsData results;
 
@@ -53,15 +52,13 @@ public class CheckQuestionDataView extends BorderPane {
     private final Button backButton = new Button("Back");
     private final Button exportButton = new Button("Export");
 
-    public CheckQuestionDataView(ClientAPI client, StateManager stateManager, User user, String questionCode) {
+    public CheckQuestionDataView(ClientAPI client, StateManager stateManager, User user, ClientAPI.TeacherResultsData results) {
         this.client = client;
         this.stateManager = stateManager;
         this.user = user;
-        this.questionCode = questionCode;
+        this.results = results;
 
         setStyle("-fx-background-color: " + COLOR_BG + ";");
-
-        loadData();
 
         BorderPane layout = new BorderPane();
 
@@ -79,64 +76,9 @@ public class CheckQuestionDataView extends BorderPane {
         this.setCenter(root);
     }
 
-    private void loadData() {
-        try {
-            if (client != null && questionCode != null) {
-                this.results = client.getQuestionResults(user, questionCode);
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
-        if (results == null) {
-
-            List<ClientAPI.StudentAnswerInfo> mockAnswers = List.of(
-                    new ClientAPI.StudentAnswerInfo("João Dias", "joadias@isec.pt", "a", true),
-                    new ClientAPI.StudentAnswerInfo("Dario Santos", "dariosantos@isec.pt", "a", true),
-                    new ClientAPI.StudentAnswerInfo("Mizalak Bento", "mizalakbento@isec.pt", "b", false),
-                    new ClientAPI.StudentAnswerInfo("Pedro Monteiro", "pedromonteiro@isec.pt", "c", false),
-                    new ClientAPI.StudentAnswerInfo("José Bastos", "josebastos@isec.pt", "a", true),
-                    new ClientAPI.StudentAnswerInfo("Fábio Galante", "fabiogalante@isec.pt", "b", false),
-                    new ClientAPI.StudentAnswerInfo("Carolina Bastos", "carolinabastos@isec.pt", "a", true),
-                    new ClientAPI.StudentAnswerInfo("Evilania Lima", "evilanialima@isec.pt", "a", true),
-
-                    new ClientAPI.StudentAnswerInfo("Mariana Lopes", "marianalopes@isec.pt", "c", false),
-                    new ClientAPI.StudentAnswerInfo("Ricardo Ferreira", "ricardoferreira@isec.pt", "b", false),
-                    new ClientAPI.StudentAnswerInfo("Joana Correia", "joanacorreia@isec.pt", "d", false),
-                    new ClientAPI.StudentAnswerInfo("Sérgio Tavares", "sergiotavares@isec.pt", "a", true),
-                    new ClientAPI.StudentAnswerInfo("Vítor Mendes", "vitormendes@isec.pt", "b", false),
-                    new ClientAPI.StudentAnswerInfo("Ana Pinto", "anapinto@isec.pt", "a", true),
-                    new ClientAPI.StudentAnswerInfo("Nuno Carvalho", "nunocarvalho@isec.pt", "b", false),
-                    new ClientAPI.StudentAnswerInfo("Patrícia Gomes", "patriciagomes@isec.pt", "c", false),
-                    new ClientAPI.StudentAnswerInfo("Tiago Ramos", "tiagoramos@isec.pt", "a", true),
-                    new ClientAPI.StudentAnswerInfo("Beatriz Silva", "beatrizsilva@isec.pt", "a", true),
-                    new ClientAPI.StudentAnswerInfo("Alexandre Rocha", "alexandreroscha@isec.pt", "d", false),
-                    new ClientAPI.StudentAnswerInfo("Francisco Matos", "franciscomatos@isec.pt", "b", false),
-                    new ClientAPI.StudentAnswerInfo("Helena Duarte", "helenaduarte@isec.pt", "c", false),
-                    new ClientAPI.StudentAnswerInfo("Eduardo Torres", "eduardotorres@isec.pt", "a", true),
-                    new ClientAPI.StudentAnswerInfo("Marta Leite", "martaleite@isec.pt", "c", false),
-                    new ClientAPI.StudentAnswerInfo("Inês Palma", "inespalma@isec.pt", "a", true),
-                    new ClientAPI.StudentAnswerInfo("Gustavo Barros", "gustavobarros@isec.pt", "b", false),
-                    new ClientAPI.StudentAnswerInfo("Rita Fonseca", "ritafonseca@isec.pt", "c", false),
-                    new ClientAPI.StudentAnswerInfo("Luís Monteiro", "luismonteiro@isec.pt", "a", true),
-                    new ClientAPI.StudentAnswerInfo("Cátia Marques", "catiamarques@isec.pt", "d", false),
-                    new ClientAPI.StudentAnswerInfo("Bruno Teixeira", "brunoteixeira@isec.pt", "b", false)
-            );
-
-            this.results = new ClientAPI.TeacherResultsData(
-                    "Qual é o package introduzido nas versões mais recentes de Java que fornece uma API moderna para realizar requisições HTTP de forma síncrona e assíncrona?",
-                    List.of("java.net.http", "javax.http.client", "org.apache.http", "javax.net.ssl"),
-                    "a",
-                    mockAnswers.size(),
-                    mockAnswers
-            );
-        }
-
-    }
-
     private BorderPane createCenterContent() {
         BorderPane root = new BorderPane();
-        root.setPadding(new Insets(0, 40, 40, 40));
+        root.setPadding(new Insets(0, 40, 40, 10));
 
         VBox topBox = new VBox(0);
         root.setTop(topBox);
@@ -148,7 +90,7 @@ public class CheckQuestionDataView extends BorderPane {
         questionHeader.setAlignment(Pos.CENTER_LEFT);
 
         Label qTitle = new Label("Question");
-        qTitle.setStyle("-fx-text-fill: white; -fx-font-size: 18px; -fx-font-weight: bold;");
+        qTitle.setStyle("-fx-text-fill: white; -fx-font-size: 20px; -fx-font-weight: bold;");
 
         Region spacerQ = new Region();
         HBox.setHgrow(spacerQ, Priority.ALWAYS);
@@ -185,7 +127,7 @@ public class CheckQuestionDataView extends BorderPane {
 
 
         styleBackButton(backButton);
-        backButton.setOnAction(e -> stateManager.showTeacherMenu(user));
+        backButton.setOnAction(e -> stateManager.showQuestionHistory(user));
 
         styleExportButton(exportButton);
         exportButton.setOnAction(e -> showExportDialog());

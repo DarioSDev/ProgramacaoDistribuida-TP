@@ -270,36 +270,41 @@ public class QuestionHistoryView extends BorderPane {
 
             Label text = new Label(truncate(q.getQuestion(), 25));
             text.setStyle("-fx-text-fill:white; -fx-font-size:12px;");
+            text.setCursor(Cursor.HAND);
+
+            text.setOnMouseClicked(e -> {
+                e.consume();
+                stateManager.showEditQuestionView(user, item.question);
+            });
+
             row.getChildren().add(createCell(text, W_QUESTION, Pos.CENTER_LEFT));
 
             Circle dot = new Circle(5);
             dot.setFill(getStatusColor(q));
             row.getChildren().add(createCell(dot, W_ACTIVE, Pos.CENTER));
 
-            Label answers = new Label(Integer.toString(item.answers));
+            Label answers = new Label(Integer.toString(item.results.totalAnswers()));
             answers.setStyle("-fx-text-fill:white; -fx-font-size:12px;");
             answers.setCursor(Cursor.HAND);
 
             answers.setOnMouseClicked(e -> {
                 e.consume();
-                stateManager.showCheckQuestionDataView(user, item.question.getId());
+                stateManager.showCheckQuestionDataView(user, item.results);
             });
 
             StackPane answersCell = createCell(answers, W_ANSWERS, Pos.CENTER);
 
             answersCell.setOnMouseClicked(e -> {
                 e.consume();
-                stateManager.showCheckQuestionDataView(user, item.question.getId());
+                stateManager.showCheckQuestionDataView(user, item.results);
             });
 
             row.getChildren().add(answersCell);
 
-
-            row.setOnMouseClicked(e -> stateManager.showEditQuestionView(user, item.question));
-
             rowsBox.getChildren().add(row);
         }
     }
+
 
     private Region createGridCol(double width, boolean borderRight) {
         Region r = new Region();
@@ -465,21 +470,49 @@ public class QuestionHistoryView extends BorderPane {
     private void loadMockData() {
         LocalDate base = LocalDate.now();
 
-        for (int i = 0; i < 30; i++) {
-            LocalDateTime start = base.atTime(0, 0).plusMinutes(i * 10);
+        for (int i = 0; i < 20; i++) {
+
+            LocalDateTime start = base.atTime(0, 0).plusMinutes(i * 30);
             LocalDateTime end = base.atTime(23, 59);
 
-            int[] answersList = {0, 187, 206, 213, 145, 178, 146};
-            int answers = answersList[i % 7];
+            String questionId = String.valueOf(i + 1);
 
             Question q = new Question(
-                    "Qual é o package introduzido... " + (i + 1),
-                    "a", new String[]{"a", "b", "c", "d"}, start, end,
-                    user != null ? String.valueOf(user.getId()) : "T1"
+                    "Pergunta " + (i + 1) + ": Qual é o package introduzido no Java?",
+                    "a",
+                    new String[]{"java.net.http", "javax.http.client", "org.apache.http", "javax.net.ssl"},
+                    start,
+                    end,
+                    questionId
             );
-            allItems.add(new QuestionItem(q, answers));
+
+            List<ClientAPI.StudentAnswerInfo> answers = new ArrayList<>();
+            for (int s = 1; s <= 15; s++) {
+                char ans = (char) ('a' + (s % 4));
+                boolean correct = (ans == 'a');
+
+                answers.add(new ClientAPI.StudentAnswerInfo(
+                        "Aluno " + s,
+                        "aluno" + s + "@isec.pt",
+                        String.valueOf(ans),
+                        correct
+                ));
+            }
+
+            ClientAPI.TeacherResultsData results =
+                    new ClientAPI.TeacherResultsData(
+                            q.getQuestion(),
+                            List.of("java.net.http", "javax.http.client", "org.apache.http", "javax.net.ssl"),
+                            "a",
+                            answers.size(),
+                            answers
+                    );
+
+            allItems.add(new QuestionItem(q, results));
         }
     }
+
+
 
     private void applyFilters() {
         LocalDate startFilter = parseDate(startDateField.getText());
@@ -562,12 +595,14 @@ public class QuestionHistoryView extends BorderPane {
 
     private static class QuestionItem {
         final Question question;
-        final int answers;
-        QuestionItem(Question question, int answers) {
+        final ClientAPI.TeacherResultsData results;
+
+        QuestionItem(Question question, ClientAPI.TeacherResultsData results) {
             this.question = question;
-            this.answers = answers;
+            this.results = results;
         }
     }
+
 
     private enum Status { ACTIVE, FUTURE, EXPIRED }
 }
