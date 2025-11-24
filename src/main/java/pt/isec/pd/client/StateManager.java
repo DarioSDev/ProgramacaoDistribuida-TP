@@ -78,7 +78,6 @@ public class StateManager {
                 "Questia - Student Menu");
     }
 
-
     public void showMenu(User user) {
         if ("teacher".equalsIgnoreCase(user.getRole()))
             showTeacherMenu(user);
@@ -91,5 +90,9 @@ public class StateManager {
                 "Questia - History");
     }
 
+    public void showQuestionView(User user, String code) {
+        setScene(new QuestionView(client, this, user, code),
+                "Questia - Question");
+    }
 
 }
