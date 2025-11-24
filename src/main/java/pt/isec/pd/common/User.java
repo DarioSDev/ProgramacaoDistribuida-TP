@@ -69,6 +69,33 @@ public class User implements Serializable {
     }
     public void setExtra(String extra) { this.extra = extra; }
 
+    public String getIdNumber() {
+        if ("student".equalsIgnoreCase(role)) {
+            return extra;
+        }
+        return null;
+    }
+
+    public String getTeacherCode() {
+        if ("teacher".equalsIgnoreCase(role)) {
+            return extra;
+        }
+        return null;
+    }
+
+    public void setIdNumber(String idNumber) {
+        if ("student".equalsIgnoreCase(role)) {
+            this.extra = idNumber;
+        }
+    }
+
+    public void setTeacherCode(String teacherCode) {
+        if ("teacher".equalsIgnoreCase(role)) {
+            this.extra = teacherCode;
+        }
+    }
+
+
     @Override
     public String toString() {
         return "User{" +

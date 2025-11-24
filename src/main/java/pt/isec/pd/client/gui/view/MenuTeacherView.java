@@ -55,7 +55,7 @@ public class MenuTeacherView extends BorderPane {
 
         styleMainButton(viewQuestionsBtn);
         viewQuestionsBtn.setGraphic(createMainIcon(SVG_VIEW_QUESTIONS));
-        viewQuestionsBtn.setGraphicTextGap(20);
+        viewQuestionsBtn.setGraphicTextGap(40);
         viewQuestionsBtn.setOnAction(e -> stateManager.showQuestionHistory(user));
 
         VBox box = new VBox(20, newQuestionBtn, viewQuestionsBtn);
@@ -66,7 +66,7 @@ public class MenuTeacherView extends BorderPane {
 
     private void styleMainButton(Button btn) {
         btn.setStyle(String.format("""
-            -fx-font-size: 22px;
+            -fx-font-size: 18px;
             -fx-font-weight: bold;
             -fx-background-color: %s;
             -fx-text-fill: %s;

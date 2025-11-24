@@ -42,11 +42,6 @@ public class StateManager {
         setScene(new RegisterView(client, this), "Questia - Register");
     }
 
-    public void showMenu(User user) {
-        if ("teacher".equalsIgnoreCase(user.getRole()))
-            showTeacherMenu(user);
-    }
-
     public void showTeacherMenu(User user) {
         setScene(new MenuTeacherView(client, this, user), "Questia - Teacher Menu");
     }
@@ -60,8 +55,13 @@ public class StateManager {
     }
 
     public void showEditProfile(User user) {
-        if ("teacher".equalsIgnoreCase(user.getRole()))
-            setScene(new EditProfileTeacherView(client, this, user), "Questia - Edit Profile");
+        if ("teacher".equalsIgnoreCase(user.getRole())) {
+            setScene(new EditProfileTeacherView(client, this, user),
+                    "Questia - Edit Profile");
+        } else if ("student".equalsIgnoreCase(user.getRole())) {
+            setScene(new EditProfileStudentView(client, this, user),
+                    "Questia - Edit Profile");
+        }
     }
 
     public void showEditQuestionView(User user, Question question) {
@@ -72,4 +72,24 @@ public class StateManager {
         setScene(new CheckQuestionDataView(client, this, user, questionCode),
                 "Questia - Question Results");
     }
+
+    public void showStudentMenu(User user) {
+        setScene(new MenuStudentView(client, this, user),
+                "Questia - Student Menu");
+    }
+
+
+    public void showMenu(User user) {
+        if ("teacher".equalsIgnoreCase(user.getRole()))
+            showTeacherMenu(user);
+        else if ("student".equalsIgnoreCase(user.getRole()))
+            showStudentMenu(user);
+    }
+
+    public void showStudentHistory(User user) {
+        setScene(new StudentHistoryView(client, this, user),
+                "Questia - History");
+    }
+
+
 }

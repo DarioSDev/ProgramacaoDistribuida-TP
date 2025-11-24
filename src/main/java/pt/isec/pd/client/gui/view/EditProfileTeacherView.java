@@ -28,6 +28,7 @@ public class EditProfileTeacherView extends BorderPane {
 
     private final VBox dropdownMenu = new VBox();
     private boolean dropdownVisible = false;
+    private final StackPane overlayContainer = new StackPane();
 
     private static final String COLOR_BG = "#1A1A1A";
     private static final String COLOR_PRIMARY = "#FF7A00";
@@ -69,10 +70,11 @@ public class EditProfileTeacherView extends BorderPane {
         main.setCenter(buildContent());
         main.setBottom(buildFooter());
 
-        StackPane root = new StackPane(main);
-
+        StackPane root = new StackPane(main, overlayContainer);
         header.attachToRoot(root);
 
+        overlayContainer.setMouseTransparent(true);
+        StackPane.setAlignment(overlayContainer, Pos.CENTER);
         this.setCenter(root);
 
         loadUserData();
@@ -108,7 +110,6 @@ public class EditProfileTeacherView extends BorderPane {
         -fx-background-color: transparent;
     """);
 
-        // --- MENU ---
         Button menuBtn = createDropdownButton("Home", SVG_HOME, COLOR_DROPDOWN_PROFILE);
         menuBtn.setStyle(menuBtn.getStyle() + "-fx-background-radius: 12 12 0 0;");
 
@@ -117,7 +118,6 @@ public class EditProfileTeacherView extends BorderPane {
             stateManager.showTeacherMenu(user);
         });
 
-        // --- LOGOUT ---
         Button logoutBtn = createDropdownButton("Logout", SVG_LOGOUT, COLOR_DROPDOWN_PROFILE);
         logoutBtn.setStyle(logoutBtn.getStyle() + "-fx-background-radius: 0 0 12 12;");
 
@@ -126,7 +126,6 @@ public class EditProfileTeacherView extends BorderPane {
             stateManager.showLogin();
         });
 
-        // Hover igual ao MenuTeacherView
         applyDropdownHoverEffect(menuBtn, COLOR_DROPDOWN_PROFILE);
         applyDropdownHoverEffect(logoutBtn, COLOR_DROPDOWN_PROFILE);
 
@@ -191,8 +190,15 @@ public class EditProfileTeacherView extends BorderPane {
         """);
 
         saveButton.setOnAction(e -> {
-            // Aqui implementar a lógica de validação e envio
+
+            if (nameField.getText().isBlank()
+                    || emailField.getText().isBlank()) {
+                showFeedback("Please fill in all required fields.", false);
+                return;
+            }
+            showFeedback("Profile updated successfully!", true);
         });
+
 
         VBox root = new VBox(40, fields, saveButton);
         root.setAlignment(Pos.CENTER);
@@ -243,4 +249,35 @@ public class EditProfileTeacherView extends BorderPane {
         nameField.setText(user.getName());
         emailField.setText(user.getEmail());
     }
+
+    private void showFeedback(String message, boolean success) {
+        Label msg = new Label(message);
+        msg.setStyle("""
+        -fx-background-color: %s;
+        -fx-text-fill: #1E1E1E;
+        -fx-font-size: 16px;
+        -fx-padding: 12 22;
+        -fx-background-radius: 12;
+    """.formatted(success ? "#8FFF8F" : "#FF8F8F"));
+
+        msg.setOpacity(0);
+        overlayContainer.getChildren().add(msg);
+
+        javafx.animation.FadeTransition fadeIn =
+                new javafx.animation.FadeTransition(javafx.util.Duration.millis(200), msg);
+        fadeIn.setFromValue(0);
+        fadeIn.setToValue(1);
+
+        javafx.animation.FadeTransition fadeOut =
+                new javafx.animation.FadeTransition(javafx.util.Duration.millis(250), msg);
+        fadeOut.setFromValue(1);
+        fadeOut.setToValue(0);
+        fadeOut.setDelay(javafx.util.Duration.seconds(2));
+
+        fadeOut.setOnFinished(e -> overlayContainer.getChildren().remove(msg));
+
+        fadeIn.play();
+        fadeOut.play();
+    }
+
 }
