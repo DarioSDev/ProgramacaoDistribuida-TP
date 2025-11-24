@@ -1,53 +1,49 @@
 package pt.isec.pd.server;
 
-import pt.isec.pd.common.MessageType; // Presumindo que esta classe existe
+import pt.isec.pd.common.Question;
+import pt.isec.pd.common.Student;
+import pt.isec.pd.common.Teacher;
+import pt.isec.pd.common.User;
+import pt.isec.pd.db.DatabaseManager;
+import pt.isec.pd.db.QueryPerformer;
+
 import java.io.*;
 import java.net.*;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.Scanner;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.text.SimpleDateFormat;
+import java.util.*;
+import java.util.concurrent.*;
 
 public class ServerService {
-    // Constantes
     private static final String MULTICAST_IP = "230.30.30.30";
     private static final int MULTICAST_PORT = 3030;
     private static final int HEARTBEAT_INTERVAL_MS = 5000;
     private static final int DIRECTORY_TIMEOUT_MS = 26000;
 
-    // Configuração
     private final String directoryHost;
     private final int directoryPort;
     private final String multicastGroupIp;
     private final String dbDirectoryPath;
-    private File currentDbFile;
 
-    // Portos Dinâmicos
+    private DatabaseManager dbManager;
+    private QueryPerformer queryPerformer;
+
     private int tcpClientPort = 0;
-    private int primaryTcpClientPort = -1;
     private int tcpDbPort = 0;
     private int udpPort = 0;
 
-    // Sockets
+    private int primaryTcpClientPort = -1;
+    private int primaryDbPort = -1;
+    private InetAddress primaryIp = null;
+
+    private volatile boolean isPrimary = false;
+    private volatile boolean running = true;
+
     private DatagramSocket udpSocket;
     private ServerSocket clientServerSocket;
     private ServerSocket dbServerSocket;
     private MulticastSocket multicastReceiverSocket;
     private MulticastSocket multicastSenderSocket;
 
-    // Estado
-    private InetAddress primaryIp = null;
-    private int primaryDbPort = -1;
-    private boolean isPrimary = false;
-    private volatile boolean running = true;
-
-    // Serviços e Monitorização
     private HeartbeatSender heartbeatSender;
     private ExecutorService clientPool;
     private Thread directoryHeartbeatThread;
@@ -61,7 +57,6 @@ public class ServerService {
 
     public void start() {
         try {
-            // 1. Inicializar Sockets Principais
             udpSocket = new DatagramSocket();
             udpPort = udpSocket.getLocalPort();
 
@@ -72,26 +67,13 @@ public class ServerService {
 
             System.out.printf("[Server] Portos: UDP=%d, Cliente=%d, BD=%d%n", udpPort, tcpClientPort, tcpDbPort);
 
-            // 2. Registo
             if (!registerAndGetPrimary()) {
                 System.err.println("[Server] Falha no registo com o Directory. A terminar.");
                 return;
             }
 
-            // 3. Lógica de Inicialização da Base de Dados baseada no estado (Primary vs Backup)
-            if (isPrimary) {
-                // [USO DO BOOLEAN] Se sou Primary, decido qual ficheiro usar
-                initializeDatabase();
-                System.out.println("[Server] STATUS: PRIMARY. BD carregada: " + currentDbFile.getName());
-            } else {
-                // Se sou Backup, preparo-me para receber do Primary
-                System.out.printf("[Server] STATUS: BACKUP. Primary: %s:%d | A aguardar sincronização...%n",
-                        primaryIp.getHostAddress(), primaryDbPort);
-                downloadDatabaseFromPrimary();
-            }
+            initializeDatabaseLogic();
 
-            // 4. Inicializar serviços de rede
-            // NOTA: A classe HeartbeatSender não foi fornecida, mas é assumida a sua existência e método start().
             heartbeatSender = new HeartbeatSender(udpSocket, directoryHost, directoryPort, tcpClientPort, HEARTBEAT_INTERVAL_MS);
             heartbeatSender.start();
 
@@ -99,7 +81,6 @@ public class ServerService {
             startClientListener();
             startDbSyncListener();
 
-            // 4. Inicializar Multicast (sockets dedicados)
             multicastReceiverSocket = startMulticastReceiver();
             multicastSenderSocket = startMulticastHeartbeat();
 
@@ -107,18 +88,47 @@ public class ServerService {
             if (isPrimary) {
                 System.out.println("[Server] Este é o servidor PRINCIPAL.");
             } else {
-                System.out.printf("[Server] Servidor backup. Primary: %s:%d (clientes) | BD: %d%n",
-                        primaryIp.getHostAddress(), primaryTcpClientPort, primaryDbPort);
-                downloadDatabaseFromPrimary();
+                System.out.printf("[Server] Servidor backup. Primary: %s:%d%n", primaryIp.getHostAddress(), primaryTcpClientPort);
             }
 
-            // Bloco de espera
             new Scanner(System.in).nextLine();
 
         } catch (IOException e) {
             System.err.println("[Server] Erro fatal: " + e.getMessage());
         } finally {
             shutdown();
+        }
+    }
+
+    private void initializeDatabaseLogic() {
+        File dir = new File(dbDirectoryPath);
+        if (!dir.exists()) dir.mkdirs();
+
+        if (isPrimary) {
+            File[] dbFiles = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".db"));
+            File selectedFile;
+
+            if (dbFiles == null || dbFiles.length == 0) {
+                System.out.println("[Server] Nenhuma BD encontrada. Criando nova versão 0...");
+                selectedFile = new File(dir, "data_v0.db");
+            } else {
+                Arrays.sort(dbFiles, Comparator.comparingLong(File::lastModified));
+                selectedFile = dbFiles[dbFiles.length - 1];
+                System.out.println("[Server] Usando BD mais recente: " + selectedFile.getName());
+            }
+
+            this.dbManager = new DatabaseManager(dbDirectoryPath, selectedFile.getName());
+            this.dbManager.createSchema();
+            this.queryPerformer = new QueryPerformer(dbManager);
+
+        } else {
+            System.out.println("[Server] Backup mode. A aguardar sincronização...");
+
+            if (!downloadDatabaseFromPrimary()) {
+                System.err.println("[Server] Falha crítica na sincronização. A encerrar.");
+                shutdown();
+                System.exit(1);
+            }
         }
     }
 
@@ -135,8 +145,7 @@ public class ServerService {
 
         byte[] recvBuf = new byte[256];
         DatagramPacket recv = new DatagramPacket(recvBuf, recvBuf.length);
-
-        String response = null;
+        String response;
 
         try {
             udpSocket.receive(recv);
@@ -145,82 +154,78 @@ public class ServerService {
 
             String[] parts = response.split("\\s+");
 
-            // 1. Tratamento de Sucesso (PRIMARY)
             if (parts.length >= 4 && parts[0].equals("PRIMARY")) {
                 primaryIp = InetAddress.getByName(parts[1]);
                 primaryTcpClientPort = Integer.parseInt(parts[2]);
                 primaryDbPort = Integer.parseInt(parts[3]);
 
-                udpSocket.setSoTimeout(0); // Sucesso: Reset do timeout
+                udpSocket.setSoTimeout(0);
 
                 isPrimary = (primaryTcpClientPort == tcpClientPort);
                 if (isPrimary) {
-                    System.out.println("[Server] EU SOU O PRIMARY! Porto cliente: " + tcpClientPort);
+                    System.out.println("[Server] EU SOU O PRIMARY!");
                 } else {
-                    System.out.println("[Server] Servidor backup. Primary: " + primaryIp.getHostAddress() + ":" + primaryTcpClientPort);
+                    System.out.println("[Server] Servidor backup definido.");
                 }
-                return true; // Sucesso no registo
-
-                // 2. Tratamento de Respostas de Erro (Adicionar esta lógica se o Directory enviar erros explícitos)
-            } else if (parts[0].equals("ERRO") || parts[0].equals("FAIL")) {
-                System.err.println("[Server] Registo Rejeitado pelo Directory: " + response);
-                return false; // Falha de protocolo esperada
-
-            } else {
-                // Resposta desconhecida ou mal formatada
-                throw new IllegalArgumentException("Resposta do Directory inesperada ou mal formatada.");
+                return true;
             }
+            return false;
 
         } catch (SocketTimeoutException e) {
             System.err.println("[Server] Timeout: Directory não respondeu.");
-        } catch (IllegalArgumentException e) {
-            // Captura o erro da nova exceção ou NumberFormatException/AddressException
-            System.err.println("[Server] Erro no protocolo de registo: " + e.getMessage());
-        } catch (Exception e) {
-            System.err.println("[Server] Erro genérico ao processar confirmação: " + e.getMessage());
-        }
-
-        // Qualquer falha nos blocos try/catch leva ao retorno 'false'.
-        return false;
-    }
-
-    // Lógica exclusiva para o PRIMARY na fase de arranque
-    private void initializeDatabase() {
-        File dir = new File(dbDirectoryPath);
-
-        // Garantir que a diretoria existe
-        if (!dir.exists() && !dir.mkdirs()) {
-            System.err.println("[Server] Erro crítico: Não foi possível criar a diretoria " + dbDirectoryPath);
-            return;
-        }
-
-        // Listar ficheiros .db
-        File[] dbFiles = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".db"));
-
-        if (dbFiles == null || dbFiles.length == 0) {
-            // Caso A: Nenhuma BD existe -> Criar versão 0
-            System.out.println("[Server] Nenhuma BD encontrada na diretoria. Criando nova versão 0...");
-            currentDbFile = new File(dir, "data_v0.db");
-            createEmptyDatabase(currentDbFile);
-        } else {
-            // Caso B: Existem BDs -> Escolher a mais recente
-            Arrays.sort(dbFiles, Comparator.comparingLong(File::lastModified));
-            currentDbFile = dbFiles[dbFiles.length - 1]; // Último é o mais recente
-            System.out.println("[Server] BDs encontradas. Selecionada a mais recente: " + currentDbFile.getName());
+            return false;
         }
     }
 
-    private void createEmptyDatabase(File dbFile) {
-        String url = "jdbc:sqlite:" + dbFile.getAbsolutePath();
-        try (Connection conn = DriverManager.getConnection(url)) {
-            if (conn != null) {
-                Statement stmt = conn.createStatement();
-                // Exemplo de schema
-                stmt.execute("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, date TEXT)");
-                System.out.println("[Server] Tabela 'events' criada com sucesso em " + dbFile.getName());
+    private boolean downloadDatabaseFromPrimary() {
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss");
+        String newFileName = "data_backup_" + sdf.format(new Date()) + ".db";
+        File syncedFile = new File(dbDirectoryPath, newFileName);
+
+        try (Socket socket = new Socket(primaryIp, primaryDbPort);
+             InputStream in = socket.getInputStream();
+             FileOutputStream fos = new FileOutputStream(syncedFile)) {
+
+            socket.setSoTimeout(5000);
+
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) != -1) {
+                fos.write(buffer, 0, read);
             }
-        } catch (SQLException e) {
-            System.err.println("[Server] Erro SQL ao criar BD: " + e.getMessage());
+
+            System.out.println("[Server] Download concluído.");
+            this.dbManager = new DatabaseManager(dbDirectoryPath, newFileName);
+            System.out.println("[Server] DatabaseManager inicializado com versão: " + dbManager.getDbVersion());
+            return true;
+
+        } catch (IOException e) {
+            System.err.println("[Server] Erro sync: " + e.getMessage());
+            if (syncedFile.exists()) syncedFile.delete();
+            return false;
+        }
+    }
+
+    private void sendDatabase(Socket peer) {
+        if (dbManager == null || !dbManager.getDbFile().exists()) return;
+
+        dbManager.getReadLock().lock();
+        try {
+            System.out.println("[Server] A enviar BD...");
+            try (FileInputStream fis = new FileInputStream(dbManager.getDbFile());
+                 OutputStream out = peer.getOutputStream()) {
+
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = fis.read(buffer)) != -1) {
+                    out.write(buffer, 0, read);
+                }
+            }
+            System.out.println("[Server] Envio concluído.");
+        } catch (IOException e) {
+            System.err.println("[Server] Erro ao enviar: " + e.getMessage());
+        } finally {
+            dbManager.getReadLock().unlock();
         }
     }
 
@@ -234,17 +239,13 @@ public class ServerService {
                     udpSocket.receive(packet);
                     String msg = new String(packet.getData(), 0, packet.getLength()).trim();
 
-                    // ⚠️ ALTERADO: Processar a resposta do Directory
                     if (msg.startsWith("PRIMARY")) {
                         processPrimaryUpdate(msg);
                     }
-                    // Se o Directory enviar o seu próprio heartbeat genérico, mantém-se a lógica de timeout
-                    else if (msg.equals("DIRECTORY_HEARTBEAT")) {
-                        // lastDirectoryHeartbeat = System.currentTimeMillis();
-                    }
                 } catch (SocketTimeoutException e) {
-                    System.err.println("[Server] Directory inativo por mais de " + (DIRECTORY_TIMEOUT_MS / 1000) + "s! Iniciando shutdown...");
+                    System.err.println("[Server] Directory inativo! Iniciando shutdown...");
                     shutdown();
+                    System.exit(1);
                 } catch (IOException e) {
                     if (running) System.err.println("[Server] Erro UDP: " + e.getMessage());
                 }
@@ -255,10 +256,7 @@ public class ServerService {
         return listenerThread;
     }
 
-    // NOVO: Método auxiliar para processar a atualização do Primary
     private void processPrimaryUpdate(String response) {
-        // Sincronização essencial para garantir que a atualização das variáveis de estado
-        // (como isPrimary, primaryIp) é atómica, evitando race conditions com outras threads.
         synchronized (this) {
             try {
                 String[] parts = response.split("\\s+");
@@ -270,22 +268,18 @@ public class ServerService {
 
                     boolean wasPrimary = this.isPrimary;
 
-                    // 1. Verificar se o próprio servidor foi promovido
                     if (newPrimaryTcpPort == tcpClientPort) {
                         this.isPrimary = true;
                     } else {
                         this.isPrimary = false;
                     }
 
-                    // 2. Atualizar dados do Primary (mesmo que seja ele próprio)
                     this.primaryIp = newPrimaryIp;
                     this.primaryTcpClientPort = newPrimaryTcpPort;
                     this.primaryDbPort = newPrimaryDbPort;
 
-                    // 3. Log de promoção (se a flag mudou)
                     if (this.isPrimary && !wasPrimary) {
-                        System.out.println("🌟🌟 [PROMOÇÃO] ESTE SERVIDOR É O NOVO PRINCIPAL! 🌟🌟");
-                        // A partir deste momento, a thread ClientListener aceitará novos clientes.
+                        System.out.println("[Server] PROMOVIDO A PRINCIPAL!");
                     }
                 }
             } catch (Exception e) {
@@ -297,6 +291,7 @@ public class ServerService {
     private void startClientListener() {
         clientPool = Executors.newFixedThreadPool(10);
         new Thread(() -> {
+            System.out.println("[ClientListener] A aguardar conexões no porto " + tcpClientPort);
             while (running) {
                 try {
                     Socket client = clientServerSocket.accept();
@@ -305,10 +300,8 @@ public class ServerService {
                     } else {
                         rejectClient(client);
                     }
-                } catch (SocketException e) {
-                    if (running) System.err.println("[Server] Erro ao aceitar cliente: " + e.getMessage());
                 } catch (IOException e) {
-                    if (running) System.err.println("[Server] Erro ao aceitar cliente: " + e.getMessage());
+                    if (running) System.err.println("[Server] Erro ClientListener: " + e.getMessage());
                 }
             }
         }, "ClientListener").start();
@@ -316,8 +309,7 @@ public class ServerService {
 
     private void rejectClient(Socket client) {
         try (PrintWriter out = new PrintWriter(client.getOutputStream(), true)) {
-            out.println("ERRO: Este servidor não é o principal. Contacte o Directory novamente.");
-            System.out.printf("[Server] Cliente rejeitado (não sou primary): %s%n", client.getRemoteSocketAddress());
+            out.println("ERRO: Server is Backup mode. Connect to Primary.");
         } catch (IOException ignored) {}
         finally {
             try { client.close(); } catch (IOException ignored) {}
@@ -329,46 +321,148 @@ public class ServerService {
         PrintWriter out = null;
 
         try {
-            // 1. Inicializar os streams (fora do try-with-resources)
+            // Configurar streams de texto
             in = new BufferedReader(new InputStreamReader(client.getInputStream()));
             out = new PrintWriter(client.getOutputStream(), true);
 
             System.out.println("[Server] Cliente conectado: " + client.getRemoteSocketAddress());
 
-            // --- 1. Autenticação/Boas-Vindas ---
-            out.println("Bem-vindo! (BD ainda não implementada)");
+            // 1. Handshake Inicial (se necessário, ou mensagem de boas-vindas)
+            // Se o cliente espera ler algo logo ao conectar:
+            out.println("BEM-VINDO AO SERVIDOR PD");
 
-            String authMsg = in.readLine(); // Recebe o "CLIENT_AUTH_REQUEST"
-            if (authMsg != null && authMsg.equals("CLIENT_AUTH_REQUEST")) {
-                System.out.println("[Server] Cliente autenticado.");
-                out.println("Mensagem recebida com sucesso! (Ligação Ativa)");
-            } else {
-                out.println("ERRO: Falha na autenticação.");
-                return; // Sai e o finally fecha o socket
+            // 2. Loop de Processamento
+            String msg;
+            while ((msg = in.readLine()) != null) {
+                msg = msg.trim();
+                if (msg.isEmpty()) continue;
+
+                System.out.println("[Server] Recebido: " + msg);
+
+                // --- PROCESSAMENTO DE COMANDOS ---
+                String[] parts = msg.split(";"); // Usamos ';' como separador para permitir espaços nos nomes
+                String command = parts[0].toUpperCase();
+
+                String response = "ERRO: Comando desconhecido ou invalido";
+
+                try {
+                    switch (command) {
+                        case "LOGIN":
+                            // Formato: LOGIN;email;password
+                            if (parts.length == 3) {
+                                String email = parts[1];
+                                String pass = parts[2];
+
+                                if (queryPerformer.authenticate(email, pass)) {
+                                    response = "LOGIN_SUCCESS";
+                                } else {
+                                    response = "LOGIN_FAILED";
+                                }
+                            }
+                            break;
+
+                        case "REGISTER_STUDENT":
+                            // Formato: REGISTER_STUDENT;nome;email;pass;numero_estudante
+                            if (parts.length == 5) {
+                                String name = parts[1];
+                                String email = parts[2];
+                                String pass = parts[3];
+                                String idNumber = parts[4];
+
+                                Student s = new Student(name, email, pass, idNumber);
+                                if (queryPerformer.registerUser(s)) {
+                                    response = "REGISTER_SUCCESS";
+                                } else {
+                                    response = "REGISTER_FAILED";
+                                }
+                            }
+                            break;
+
+                        case "REGISTER_TEACHER":
+                            // Formato: REGISTER_TEACHER;nome;email;pass
+                            if (parts.length == 4) {
+                                String name = parts[1];
+                                String email = parts[2];
+                                String pass = parts[3];
+
+                                Teacher t = new Teacher(name, email, pass);
+                                if (queryPerformer.registerUser(t)) {
+                                    response = "REGISTER_SUCCESS";
+                                } else {
+                                    response = "REGISTER_FAILED";
+                                }
+                            }
+                            break;
+
+                        case "GET_USER_INFO":
+                            // Formato: GET_USER_INFO;email
+                            if (parts.length == 2) {
+                                String email = parts[1];
+                                User u = queryPerformer.getUser(email);
+                                if (u != null) {
+                                    // Retorna representação simples. Ex: "USER_INFO;Nome;Email"
+                                    response = "USER_INFO;" + u.getName() + ";" + u.getEmail();
+                                } else {
+                                    response = "USER_NOT_FOUND";
+                                }
+                            }
+                            break;
+
+                        case "CREATE_QUESTION":
+                            // Exemplo mais complexo.
+                            // Formato: CREATE_QUESTION;pergunta;opcaoCorrecta;op1,op2,op3...
+                            if (parts.length >= 4) {
+                                String text = parts[1];
+                                String correct = parts[2];
+                                // Assumindo que as opções vêm separadas por vírgula no 4º campo
+                                String[] options = parts[3].split(",");
+
+                                // Precisamos do ID do professor que criou (poderia vir no comando)
+                                // Aqui uso um ID dummy ou tens de passar o email do docente logado
+                                Question q = new Question(text, correct, options, null, null, "DOCENTE_ID");
+
+                                if (queryPerformer.saveQuestion(q)) {
+                                    response = "QUESTION_SAVED";
+                                } else {
+                                    response = "QUESTION_ERROR";
+                                }
+                            }
+                            break;
+
+                        case "LOGOUT":
+                            response = "BYE";
+                            break;
+
+                        default:
+                            response = "UNKNOWN_COMMAND";
+                    }
+                } catch (Exception e) {
+                    response = "SERVER_ERROR: " + e.getMessage();
+                    e.printStackTrace();
+                }
+
+                // Envia resposta ao cliente
+                out.println(response);
+
+                // Se for LOGOUT, podemos fechar o ciclo
+                if ("BYE".equals(response)) {
+                    break;
+                }
             }
-
-            // --- 2. Loop de Sessão Persistente (A LIGAÇÃO MANTÉM-SE AQUI) ---
-            String clientMsg;
-            // O Servidor agora espera por dados do Cliente, mantendo a ligação aberta.
-            while ((clientMsg = in.readLine()) != null) {
-                if (clientMsg.trim().isEmpty()) continue;
-
-                System.out.println("[Server] Recebido do cliente (Sessão Ativa): " + clientMsg);
-
-                // Lógica de processamento e resposta
-                out.println("Comando processado: " + clientMsg);
-            }
-
-            // Se o loop termina (in.readLine() == null), o cliente fechou a ligação
-            System.out.println("[Server] Cliente fechou ligação: " + client.getRemoteSocketAddress());
 
         } catch (IOException e) {
-            System.err.println("[Server] Erro na sessão com cliente: " + client.getRemoteSocketAddress() + " | " + e.getMessage());
+            System.err.println("[Server] Erro na conexão com cliente: " + e.getMessage());
         } finally {
-            // ⚠️ Fecha os streams E o socket de forma segura.
+            // Fechar recursos
             try { if (in != null) in.close(); } catch (IOException ignored) {}
             try { if (out != null) out.close(); } catch (Exception ignored) {}
             try { client.close(); } catch (IOException ignored) {}
+        }
+    }
+
+    private void processClientUpdate(String sqlCommand) {
+        if (dbManager != null) {
+            dbManager.executeUpdate(sqlCommand);
         }
     }
 
@@ -380,61 +474,14 @@ public class ServerService {
                     sendDatabase(peer);
                     peer.close();
                 } catch (IOException e) {
-                    if (running) System.err.println("[Server] Erro sync BD: " + e.getMessage());
+                    if (running) System.err.println("[Server] Erro DbSync: " + e.getMessage());
                 }
             }
         }, "DbSyncListener").start();
     }
 
-    private void sendDatabase(Socket peer) {
-        if (currentDbFile == null || !currentDbFile.exists()) {
-            // Caso extremo: Primary sem BD
-            return;
-        }
-        try (FileInputStream fis = new FileInputStream(currentDbFile);
-             OutputStream out = peer.getOutputStream()) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = fis.read(buffer)) != -1) {
-                out.write(buffer, 0, read);
-            }
-        } catch (IOException e) {
-            System.err.println("[Server] Erro ao enviar BD: " + e.getMessage());
-        }
-    }
-
-    private void downloadDatabaseFromPrimary() {
-        System.out.println("[Server] A iniciar download da BD do Primary...");
-
-        // Nome para a cópia sincronizada (ex: timestamp para garantir unicidade/histórico)
-        File syncedFile = new File(dbDirectoryPath, "synced_" + System.currentTimeMillis() + ".db");
-
-        // Garantir diretoria
-        File dir = new File(dbDirectoryPath);
-        if (!dir.exists()) dir.mkdirs();
-
-        try (Socket socket = new Socket(primaryIp, primaryDbPort);
-             InputStream in = socket.getInputStream();
-             FileOutputStream fos = new FileOutputStream(syncedFile)) {
-
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = in.read(buffer)) != -1) {
-                fos.write(buffer, 0, read);
-            }
-
-            this.currentDbFile = syncedFile;
-            System.out.println("[Server] Sincronização concluída. BD Local: " + currentDbFile.getName());
-
-        } catch (IOException e) {
-            System.err.println("[Server] Falha ao sincronizar BD: " + e.getMessage());
-            shutdown();
-        }
-    }
-
-    // 🌟 MÉTODO CORRIGIDO/COMPLETO
     private MulticastSocket startMulticastReceiver() throws IOException {
-        MulticastSocket receiver = new MulticastSocket(8888); // Porta 8888 para receção
+        MulticastSocket receiver = new MulticastSocket(8888);
         InetAddress group = InetAddress.getByName(multicastGroupIp);
         receiver.joinGroup(group);
 
@@ -445,9 +492,9 @@ public class ServerService {
                     DatagramPacket packet = new DatagramPacket(buf, buf.length);
                     receiver.receive(packet);
                     String msg = new String(packet.getData(), 0, packet.getLength());
-                    System.out.println("[Multicast Receiver] " + msg.trim());
+                    System.out.println("[Multicast] " + msg.trim());
                 } catch (IOException e) {
-                    if (running) System.err.println("[Multicast Receiver] Erro: " + e.getMessage());
+                    if (running) System.err.println("[Multicast] Erro: " + e.getMessage());
                 }
             }
         }, "Multicast-Receiver").start();
@@ -455,9 +502,8 @@ public class ServerService {
         return receiver;
     }
 
-    // 🌟 MÉTODO CORRIGIDO/COMPLETO
     private MulticastSocket startMulticastHeartbeat() throws IOException {
-        MulticastSocket sender = new MulticastSocket(); // Usa porta dinâmica para envio
+        MulticastSocket sender = new MulticastSocket();
         InetAddress group = InetAddress.getByName(MULTICAST_IP);
 
         String msg = "HEARTBEAT " + tcpClientPort;
@@ -473,7 +519,7 @@ public class ServerService {
                     Thread.currentThread().interrupt();
                     break;
                 } catch (Exception e) {
-                    if (running) System.err.println("[Multicast Sender] Erro: " + e.getMessage());
+                    if (running) System.err.println("[MulticastSender] Erro: " + e.getMessage());
                 }
             }
         }, "Multicast-Sender").start();
@@ -488,7 +534,7 @@ public class ServerService {
             InetAddress dirAddr = InetAddress.getByName(directoryHost);
             DatagramPacket packet = new DatagramPacket(buf, buf.length, dirAddr, directoryPort);
             udpSocket.send(packet);
-            System.out.println("[Server] UNREGISTER enviado ao Directory.");
+            System.out.println("[Server] UNREGISTER enviado.");
         } catch (IOException e) {
             System.err.println("[Server] Falha ao enviar UNREGISTER: " + e.getMessage());
         }
@@ -498,38 +544,26 @@ public class ServerService {
         if (!running) return;
         running = false;
 
-        System.out.println("\n[Server] Iniciando encerramento gracioso...");
+        System.out.println("\n[Server] A encerrar...");
 
-        // 1. Enviar UNREGISTER e interromper Heartbeat UDP
         sendUnregister();
+
         if (heartbeatSender != null && heartbeatSender.isAlive()) {
-            heartbeatSender.interrupt();
+            heartbeatSender.shutdown();
         }
 
-        // 2. Encerrar ExecutorService de Clientes (Gracioso)
         if (clientPool != null) {
-            clientPool.shutdown();
-            try {
-                if (!clientPool.awaitTermination(5, TimeUnit.SECONDS)) {
-                    clientPool.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                clientPool.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
+            clientPool.shutdownNow();
         }
 
-        // 3. Interromper Threads de Listeners (UDP Dir)
         if (directoryHeartbeatThread != null) {
             directoryHeartbeatThread.interrupt();
         }
 
-        // 4. Fechar Sockets
         try { if (udpSocket != null) udpSocket.close(); } catch (Exception ignored) {}
         try { if (clientServerSocket != null) clientServerSocket.close(); } catch (Exception ignored) {}
         try { if (dbServerSocket != null) dbServerSocket.close(); } catch (Exception ignored) {}
 
-        // Fechar sockets Multicast
         try {
             if (multicastReceiverSocket != null) {
                 InetAddress group = InetAddress.getByName(multicastGroupIp);

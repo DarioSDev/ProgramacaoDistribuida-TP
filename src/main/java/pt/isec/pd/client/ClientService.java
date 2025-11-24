@@ -1,5 +1,7 @@
 package pt.isec.pd.client;
 
+import pt.isec.pd.common.Command;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -129,8 +131,9 @@ public class ClientService {
             System.out.println("[Client] Servidor: " + welcome);
 
             // 3. Autenticação (ou primeira mensagem)
-            out.println("CLIENT_AUTH_REQUEST");
-            System.out.println("[Client] Enviado: CLIENT_AUTH_REQUEST");
+            out.println(Command.CLIENT_REGISTER_REQUEST);
+
+            System.out.println("[Client] Enviado: " + Command.CLIENT_REGISTER_REQUEST);
 
             // 4. Receber confirmação
             String confirmation = in.readLine();
