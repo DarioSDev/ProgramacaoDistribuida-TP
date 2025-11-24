@@ -8,16 +8,18 @@ import java.util.Arrays;
 public class Question implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
+
     private String id;
     private String question;
     private String correctOption;
-    private String [] options;
+    private String[] options;
     private boolean hasAnswers;
     private LocalDateTime startTime;
     private LocalDateTime endTime;
     private String teacherId;
 
-    public Question(String question, String correctOption, String[] options, LocalDateTime startTime, LocalDateTime endTime, String teacherId) {
+    public Question(String question, String correctOption, String[] options,
+                    LocalDateTime startTime, LocalDateTime endTime, String teacherId) {
         this.id = generateId();
         this.question = question;
         this.correctOption = correctOption;
@@ -29,7 +31,7 @@ public class Question implements Serializable {
     }
 
     private String generateId() {
-        int num = (int)(Math.random() * 900000) + 100000;
+        int num = (int) (Math.random() * 900000) + 100000;
         return String.valueOf(num);
     }
 
@@ -69,6 +71,22 @@ public class Question implements Serializable {
         this.hasAnswers = hasAnswers;
     }
 
+    public LocalDateTime getStartTime() {
+        return startTime;
+    }
+
+    public LocalDateTime getEndTime() {
+        return endTime;
+    }
+
+    public void setStartTime(LocalDateTime startTime) {
+        this.startTime = startTime;
+    }
+
+    public void setEndTime(LocalDateTime endTime) {
+        this.endTime = endTime;
+    }
+
     public boolean isActive() {
         LocalDateTime now = LocalDateTime.now();
         return now.isAfter(startTime) && now.isBefore(endTime);
@@ -77,10 +95,10 @@ public class Question implements Serializable {
     @Override
     public String toString() {
         return "Question{" +
-                "id='" + getId() + '\'' +
-                ", question='" + getQuestion() + '\'' +
+                "id='" + id + '\'' +
+                ", question='" + question + '\'' +
                 ", options=" + Arrays.toString(options) +
-                ", correctOption='" + getCorrectOption() + '\'' +
+                ", correctOption='" + correctOption + '\'' +
                 ", startTime=" + startTime +
                 ", endTime=" + endTime +
                 ", teacherId='" + teacherId + '\'' +
