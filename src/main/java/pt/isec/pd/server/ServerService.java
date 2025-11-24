@@ -3,6 +3,12 @@ package pt.isec.pd.server;
 import pt.isec.pd.common.MessageType; // Presumindo que esta classe existe
 import java.io.*;
 import java.net.*;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Scanner;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -19,6 +25,8 @@ public class ServerService {
     private final String directoryHost;
     private final int directoryPort;
     private final String multicastGroupIp;
+    private final String dbDirectoryPath;
+    private File currentDbFile;
 
     // Portos Dinâmicos
     private int tcpClientPort = 0;
@@ -44,10 +52,11 @@ public class ServerService {
     private ExecutorService clientPool;
     private Thread directoryHeartbeatThread;
 
-    public ServerService(String directoryHost, int directoryPort, String multicastGroupIp) {
+    public ServerService(String directoryHost, int directoryPort, String multicastGroupIp, String dbDirectoryPath) {
         this.directoryHost = directoryHost;
         this.directoryPort = directoryPort;
         this.multicastGroupIp = multicastGroupIp;
+        this.dbDirectoryPath = dbDirectoryPath;
     }
 
     public void start() {
@@ -69,7 +78,19 @@ public class ServerService {
                 return;
             }
 
-            // 3. Inicializar serviços de rede
+            // 3. Lógica de Inicialização da Base de Dados baseada no estado (Primary vs Backup)
+            if (isPrimary) {
+                // [USO DO BOOLEAN] Se sou Primary, decido qual ficheiro usar
+                initializeDatabase();
+                System.out.println("[Server] STATUS: PRIMARY. BD carregada: " + currentDbFile.getName());
+            } else {
+                // Se sou Backup, preparo-me para receber do Primary
+                System.out.printf("[Server] STATUS: BACKUP. Primary: %s:%d | A aguardar sincronização...%n",
+                        primaryIp.getHostAddress(), primaryDbPort);
+                downloadDatabaseFromPrimary();
+            }
+
+            // 4. Inicializar serviços de rede
             // NOTA: A classe HeartbeatSender não foi fornecida, mas é assumida a sua existência e método start().
             heartbeatSender = new HeartbeatSender(udpSocket, directoryHost, directoryPort, tcpClientPort, HEARTBEAT_INTERVAL_MS);
             heartbeatSender.start();
@@ -161,6 +182,46 @@ public class ServerService {
 
         // Qualquer falha nos blocos try/catch leva ao retorno 'false'.
         return false;
+    }
+
+    // Lógica exclusiva para o PRIMARY na fase de arranque
+    private void initializeDatabase() {
+        File dir = new File(dbDirectoryPath);
+
+        // Garantir que a diretoria existe
+        if (!dir.exists() && !dir.mkdirs()) {
+            System.err.println("[Server] Erro crítico: Não foi possível criar a diretoria " + dbDirectoryPath);
+            return;
+        }
+
+        // Listar ficheiros .db
+        File[] dbFiles = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".db"));
+
+        if (dbFiles == null || dbFiles.length == 0) {
+            // Caso A: Nenhuma BD existe -> Criar versão 0
+            System.out.println("[Server] Nenhuma BD encontrada na diretoria. Criando nova versão 0...");
+            currentDbFile = new File(dir, "data_v0.db");
+            createEmptyDatabase(currentDbFile);
+        } else {
+            // Caso B: Existem BDs -> Escolher a mais recente
+            Arrays.sort(dbFiles, Comparator.comparingLong(File::lastModified));
+            currentDbFile = dbFiles[dbFiles.length - 1]; // Último é o mais recente
+            System.out.println("[Server] BDs encontradas. Selecionada a mais recente: " + currentDbFile.getName());
+        }
+    }
+
+    private void createEmptyDatabase(File dbFile) {
+        String url = "jdbc:sqlite:" + dbFile.getAbsolutePath();
+        try (Connection conn = DriverManager.getConnection(url)) {
+            if (conn != null) {
+                Statement stmt = conn.createStatement();
+                // Exemplo de schema
+                stmt.execute("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, date TEXT)");
+                System.out.println("[Server] Tabela 'events' criada com sucesso em " + dbFile.getName());
+            }
+        } catch (SQLException e) {
+            System.err.println("[Server] Erro SQL ao criar BD: " + e.getMessage());
+        }
     }
 
     private Thread startDirectoryHeartbeatListener() {
@@ -326,19 +387,11 @@ public class ServerService {
     }
 
     private void sendDatabase(Socket peer) {
-        File dbFile = new File("events.db");
-        if (!dbFile.exists()) {
-            System.out.println("[Server] BD não existe. Criando vazia...");
-            try (var conn = java.sql.DriverManager.getConnection("jdbc:sqlite:events.db")) {
-                var stmt = conn.createStatement();
-                stmt.execute("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, name TEXT)");
-            } catch (Exception e) {
-                System.err.println("Erro ao criar BD: " + e.getMessage());
-                return;
-            }
+        if (currentDbFile == null || !currentDbFile.exists()) {
+            // Caso extremo: Primary sem BD
+            return;
         }
-
-        try (FileInputStream fis = new FileInputStream(dbFile);
+        try (FileInputStream fis = new FileInputStream(currentDbFile);
              OutputStream out = peer.getOutputStream()) {
             byte[] buffer = new byte[8192];
             int read;
@@ -351,19 +404,32 @@ public class ServerService {
     }
 
     private void downloadDatabaseFromPrimary() {
-        System.out.println("[Server] Sincronizando BD com principal...");
+        System.out.println("[Server] A iniciar download da BD do Primary...");
+
+        // Nome para a cópia sincronizada (ex: timestamp para garantir unicidade/histórico)
+        File syncedFile = new File(dbDirectoryPath, "synced_" + System.currentTimeMillis() + ".db");
+
+        // Garantir diretoria
+        File dir = new File(dbDirectoryPath);
+        if (!dir.exists()) dir.mkdirs();
+
         try (Socket socket = new Socket(primaryIp, primaryDbPort);
              InputStream in = socket.getInputStream();
-             FileOutputStream fos = new FileOutputStream("events.db")) {
+             FileOutputStream fos = new FileOutputStream(syncedFile)) {
 
             byte[] buffer = new byte[8192];
             int read;
             while ((read = in.read(buffer)) != -1) {
                 fos.write(buffer, 0, read);
             }
-            System.out.println("[Server] BD sincronizada.");
+
+            this.currentDbFile = syncedFile;
+            System.out.println("[Server] Sincronização concluída. BD Local: " + currentDbFile.getName());
+
         } catch (IOException e) {
-            System.err.println("[Server] Falha na sincronização: " + e.getMessage());
+            System.err.println("[Server] Falha ao sincronizar BD: " + e.getMessage());
+            // Nota: Se falhar, o Backup fica sem BD válida por enquanto.
+            // Poderia tentar carregar uma antiga localmente como fallback.
         }
     }
 
