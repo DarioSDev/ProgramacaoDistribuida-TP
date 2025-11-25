@@ -1,4 +1,4 @@
-package pt.isec.pd.client.gui.view;
+package pt.isec.pd.client.gui.view.teacher;
 
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;

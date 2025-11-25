@@ -1,4 +1,4 @@
-package pt.isec.pd.client.gui.view;
+package pt.isec.pd.client.gui.view.teacher;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -175,17 +175,9 @@ public class EditQuestionView extends BorderPane {
         HBox middleArea = new HBox(40, optionsWithButton, correctColumn, datesColumn);
         middleArea.setAlignment(Pos.TOP_CENTER);
 
-        styleMainButton(saveButton);
-        styleMainButton(backButton);
-
-        saveButton.setPrefWidth(260);
-        backButton.setPrefWidth(260);
-
-        saveButton.setGraphic(createUploadIcon());
-        saveButton.setGraphicTextGap(10);
-
-        backButton.setGraphic(createBackIcon());
-        backButton.setGraphicTextGap(10);
+        styleButton(saveButton, createUploadIcon());
+        saveButton.setGraphicTextGap(35);
+        styleButton(backButton, createBackIcon());
 
         saveButton.setOnAction(e -> handleSave());
         backButton.setOnAction(e -> {
@@ -206,6 +198,29 @@ public class EditQuestionView extends BorderPane {
         );
 
         return root;
+    }
+
+    private void styleButton(Button btn, SVGPath icon) {
+        btn.setCursor(Cursor.HAND);
+        btn.setPrefWidth(260);
+        btn.setPrefHeight(40);
+
+        icon.setFill(Color.BLACK);
+        icon.setScaleX(0.8);
+        icon.setScaleY(0.8);
+
+        btn.setGraphic(icon);
+        btn.setGraphicTextGap(60);
+
+        btn.setStyle("""
+            -fx-background-color: #FF7A00;
+            -fx-text-fill: black;
+            -fx-font-size: 16px;
+            -fx-font-weight: bold;
+            -fx-background-radius: 12;
+            -fx-alignment: CENTER_LEFT;
+            -fx-padding: 0 0 0 35;
+        """);
     }
 
     private void initOptionsFromQuestion() {
@@ -275,10 +290,12 @@ public class EditQuestionView extends BorderPane {
         optionField.setStyle("""
             -fx-background-color: white;
             -fx-text-fill: black;
-            -fx-font-size: 13px;
+            -fx-font-size: 16px;
             -fx-padding: 2 8;
-            -fx-background-radius: 8;
+            -fx-background-radius: 12;
             -fx-border-color: transparent;
+            -fx-alignment: CENTER_LEFT;
+            -fx-padding: 0 0 0 35;
             """);
 
         Button removeBtn = new Button("x");
@@ -480,23 +497,6 @@ public class EditQuestionView extends BorderPane {
         btn.setMaxHeight(28);
     }
 
-    private void styleMainButton(Button btn) {
-        btn.setCursor(Cursor.HAND);
-        btn.setStyle(String.format("""
-                -fx-background-color: %s;
-                -fx-text-fill: %s;
-                -fx-font-size: 16px;
-                -fx-font-weight: bold;
-                -fx-background-radius: 14;
-                -fx-padding: 4 28;
-                -fx-alignment: CENTER;
-                """, COLOR_PRIMARY, COLOR_BUTTON_TEXT));
-        btn.setMinHeight(38);
-        btn.setPrefHeight(38);
-        btn.setMaxHeight(38);
-        btn.setPrefWidth(300);
-    }
-
     private SVGPath createPlusIcon() {
         SVGPath svg = new SVGPath();
         svg.setContent(SVG_PLUS_CIRCLE);
@@ -509,18 +509,12 @@ public class EditQuestionView extends BorderPane {
     private SVGPath createUploadIcon() {
         SVGPath svg = new SVGPath();
         svg.setContent(SVG_UPLOAD);
-        svg.setFill(Color.BLACK);
-        svg.setScaleX(0.8);
-        svg.setScaleY(0.8);
         return svg;
     }
 
     private SVGPath createBackIcon() {
         SVGPath svg = new SVGPath();
         svg.setContent(SVG_BACK);
-        svg.setFill(Color.BLACK);
-        svg.setScaleX(0.85);
-        svg.setScaleY(0.85);
         return svg;
     }
 

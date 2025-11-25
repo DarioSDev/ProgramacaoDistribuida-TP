@@ -1,10 +1,12 @@
-package pt.isec.pd.client.gui.view;
+package pt.isec.pd.client.gui.view.student;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Cursor;
 import javafx.scene.control.Button;
+import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
+import javafx.scene.input.KeyCode;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.SVGPath;
@@ -21,6 +23,8 @@ public class MenuStudentView extends BorderPane {
     private static final String COLOR_BG = "#1A1A1A";
     private static final String COLOR_PRIMARY = "#FF7A00";
 
+    private StackPane root;
+
     public MenuStudentView(ClientAPI client, StateManager stateManager, User user) {
         this.client = client;
         this.stateManager = stateManager;
@@ -36,10 +40,10 @@ public class MenuStudentView extends BorderPane {
         VBox center = createCenterContent();
         layout.setCenter(center);
 
-        StackPane root = new StackPane(layout);
+        root = new StackPane(layout);
         header.attachToRoot(root);
 
-        this.setCenter(root);
+        setCenter(root);
     }
 
     private VBox createCenterContent() {
@@ -49,7 +53,6 @@ public class MenuStudentView extends BorderPane {
         double ELEMENT_WIDTH = 360;
         double FONT_SIZE = 18;
         double RADIUS = 12;
-
         double ELEMENT_HEIGHT = 50;
 
         TextField codeField = new TextField();
@@ -69,21 +72,28 @@ public class MenuStudentView extends BorderPane {
         SVGPath iconX = new SVGPath();
         iconX.setContent("M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z");
         iconX.setFill(Color.BLACK);
-        iconX.setScaleX(0.7);
-        iconX.setScaleY(0.7);
+        iconX.setScaleX(1.0);
+        iconX.setScaleY(1.0);
 
         btnClear.setGraphic(iconX);
-        btnClear.setCursor(Cursor.HAND);
         btnClear.setStyle("-fx-background-color: transparent;");
+        btnClear.setCursor(Cursor.HAND);
         btnClear.setVisible(false);
 
         btnClear.setOnAction(e -> codeField.clear());
-        codeField.textProperty().addListener((obs, oldVal, newVal) -> btnClear.setVisible(!newVal.isEmpty()));
+        codeField.textProperty().addListener((o, ov, nv) -> btnClear.setVisible(!nv.isEmpty()));
 
         StackPane inputContainer = new StackPane(codeField, btnClear);
         inputContainer.setMaxWidth(ELEMENT_WIDTH);
+
         StackPane.setAlignment(btnClear, Pos.CENTER_RIGHT);
         StackPane.setMargin(btnClear, new Insets(0, 5, 0, 0));
+
+        codeField.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ENTER) {
+                submitCode(codeField.getText());
+            }
+        });
 
         Button btnHistory = new Button("View History");
         btnHistory.setCursor(Cursor.HAND);
@@ -106,11 +116,8 @@ public class MenuStudentView extends BorderPane {
                         "C12.1054 12.5196 12 12.2652 12 12V6C12 5.44772 12.4477 5 13 5Z"
         );
         histIcon.setFill(Color.BLACK);
-        histIcon.setScaleX(1.0);
-        histIcon.setScaleY(1.0);
 
         btnHistory.setGraphic(histIcon);
-
         btnHistory.setGraphicTextGap(40);
 
         btnHistory.setStyle("""
@@ -119,7 +126,7 @@ public class MenuStudentView extends BorderPane {
             -fx-background-color: %s;
             -fx-text-fill: black;
             -fx-background-radius: %f;
-            -fx-padding: 10 40;  
+            -fx-padding: 10 40;
         """.formatted(FONT_SIZE, COLOR_PRIMARY, RADIUS));
 
         btnHistory.setOnAction(e -> stateManager.showStudentHistory(user));
@@ -128,4 +135,74 @@ public class MenuStudentView extends BorderPane {
 
         return body;
     }
+
+    private void submitCode(String code) {
+        if (code == null || code.isBlank()) {
+            showPopup("The code provided is invalid!");
+            return;
+        }
+
+        String validation = client.validateQuestionCode(code.trim());
+
+        if (!"VALID".equals(validation)) {
+            showPopup("The code provided is invalid!");
+            return;
+        }
+
+        stateManager.showQuestionView(user, code.trim());
+    }
+
+    private void showPopup(String text) {
+
+        StackPane overlay = new StackPane();
+        overlay.setStyle("-fx-background-color: rgba(0,0,0,0.45);");
+
+        VBox box = new VBox(20);
+        box.setAlignment(Pos.CENTER);
+        box.setPadding(new Insets(30));
+        box.setStyle("""
+            -fx-background-color: #D9D9D9;
+            -fx-border-color: #FF0000;
+            -fx-border-width: 3px;
+            -fx-background-radius: 14px;
+            -fx-border-radius: 14px;
+        """);
+
+        box.setPrefWidth(420);
+        box.setPrefHeight(260);
+        box.setMaxWidth(420);
+        box.setMaxHeight(260);
+
+        SVGPath icon = new SVGPath();
+        icon.setContent("M32.3039 32.5965L19.1207 6.21369C18.0213 4.92877 16.2374 4.92877 15.138 6.21369L1.9537 32.5965C0.854302 33.8802 0.854302 35.9638 1.9537 37.25H32.3029C33.4044 35.9638 33.4044 33.8802 32.3039 32.5965ZM15.9152 15.6845C15.9152 14.6642 16.6228 13.8383 17.4948 13.8383C18.3667 13.8383 19.0744 14.6642 19.0744 15.6845V24.2998C19.0744 25.3189 18.3667 26.146 17.4948 26.146C16.6228 26.146 15.9152 25.3189 15.9152 24.2998V15.6845ZM17.5042 32.3097C16.6323 32.3097 15.9246 31.4851 15.9246 30.4635C15.9246 29.4445 16.6323 28.6174 17.5042 28.6174C18.3762 28.6174 19.0838 29.4445 19.0838 30.4635C19.0838 31.4851 18.3762 32.3097 17.5042 32.3097Z");
+        icon.setFill(Color.RED);
+
+        icon.setScaleX(1.5);
+        icon.setScaleY(1.5);
+
+        Label msg = new Label(text);
+        msg.setStyle("-fx-font-size: 19px; -fx-text-fill: black;");
+
+        Button ok = new Button("Ok");
+        ok.setPrefWidth(100);
+        ok.setStyle("""
+            -fx-background-color: #FF7A00;
+            -fx-text-fill: black;
+            -fx-font-size: 16px;
+            -fx-background-radius: 10px;
+            -fx-border-color: #2C2C2C;
+            -fx-border-width: 1px;
+            -fx-border-radius: 10px;
+        """);
+
+        ok.setOnAction(e -> root.getChildren().remove(overlay));
+
+        box.getChildren().addAll(icon, msg, ok);
+
+        overlay.getChildren().add(box);
+        StackPane.setAlignment(box, Pos.CENTER);
+
+        root.getChildren().add(overlay);
+    }
+
 }

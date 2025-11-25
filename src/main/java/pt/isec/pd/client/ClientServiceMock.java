@@ -29,7 +29,7 @@ public class ClientServiceMock implements ClientAPI {
     public QuestionData getQuestionByCode(String code) {
         if (code.equalsIgnoreCase("ABC123")) {
             return new QuestionData(
-                    "What is the capital of France?",
+                    "\"What is the capital of France What is the capital of France What is the capital of France What is the capital of France?What is the capital of France",
                     List.of("Berlin", "Madrid", "Paris", "Lisbon")
             );
         }
@@ -59,7 +59,7 @@ public class ClientServiceMock implements ClientAPI {
         String question = "Unknown question";
 
         if (code.equalsIgnoreCase("ABC123"))
-            question = "What is the capital of France?";
+            question = "What is the capital of France What is the capital of France What is the capital of France What is the capital of France?What is the capital of France";
         else if (code.equalsIgnoreCase("MATH001"))
             question = "2 + 2 = ?";
 
@@ -73,7 +73,7 @@ public class ClientServiceMock implements ClientAPI {
     @Override
     public List<HistoryItem> getStudentHistory(User user, LocalDate start, LocalDate end, String filter) {
         return List.of(
-                new HistoryItem("What is the capital of France?", LocalDate.of(2025, 1, 12), true),
+                new HistoryItem("What is the capital of France What is the capital of France What is the capital of France What is the capital of France?What is the capital of France", LocalDate.of(2025, 1, 12), true),
                 new HistoryItem("2 + 2 = ?", LocalDate.of(2025, 3, 10), false),
                 new HistoryItem("Who discovered America?", LocalDate.of(2024, 12, 20), true)
         );
@@ -114,7 +114,7 @@ public class ClientServiceMock implements ClientAPI {
     @Override
     public TeacherResultsData getQuestionResults(User user, String code) {
         TeacherResultsData dataABC = new TeacherResultsData(
-                "What is the capital of France?",
+                "\"What is the capital of France What is the capital of France What is the capital of France What is the capital of France?What is the capital of France\";",
                 List.of("Berlin", "Madrid", "Paris", "Lisbon"),
                 "c",
                 3,
