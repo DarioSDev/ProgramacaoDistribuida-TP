@@ -17,27 +17,27 @@ public interface ClientAPI {
         throw new UnsupportedOperationException("register não implementado.");
     }
 
-    default QuestionData getQuestionByCode(String code) throws IOException {
+    default QuestionData getQuestionByCode(String code) {
         throw new UnsupportedOperationException("getQuestionByCode não implementado.");
     }
 
-    default boolean submitAnswer(User user, String code, int index) throws IOException {
+    default boolean submitAnswer(User user, String code, int index) {
         throw new UnsupportedOperationException("submitAnswer não implementado.");
     }
 
-    default String validateQuestionCode(String code) throws IOException {
+    default String validateQuestionCode(String code) {
         throw new UnsupportedOperationException("validateQuestionCode não implementado.");
     }
 
-    default AnswerResultData getAnswerResult(User user, String code) throws IOException {
+    default AnswerResultData getAnswerResult(User user, String code) {
         throw new UnsupportedOperationException("getAnswerResult não implementado.");
     }
 
-    default List<HistoryItem> getStudentHistory(User user, LocalDate start, LocalDate end, String filter) throws IOException {
+    default List<HistoryItem> getStudentHistory(User user, LocalDate start, LocalDate end, String filter) {
         throw new UnsupportedOperationException("getStudentHistory não implementado.");
     }
 
-    default List<TeacherQuestionItem> getTeacherQuestions(User user, String filter) throws IOException {
+    default List<TeacherQuestionItem> getTeacherQuestions(User user, String filter){
         throw new UnsupportedOperationException("getTeacherQuestions não implementado.");
     }
 
@@ -50,11 +50,11 @@ public interface ClientAPI {
             LocalTime st,
             LocalDate ed,
             LocalTime et
-    ) throws IOException {
+    ) {
         throw new UnsupportedOperationException("createQuestion não implementado.");
     }
 
-    default TeacherResultsData getQuestionResults(User user, String questionCode) throws IOException {
+    default TeacherResultsData getQuestionResults(User user, String questionCode) {
         throw new UnsupportedOperationException("getQuestionResults não implementado.");
     }
 
