@@ -12,6 +12,8 @@ import javafx.scene.shape.SVGPath;
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
 
+import java.io.IOException;
+
 public class RegisterView extends BorderPane {
 
     private final ClientAPI clientService;
@@ -101,6 +103,23 @@ public class RegisterView extends BorderPane {
         cancelArea.setAlignment(Pos.CENTER_RIGHT);
         cancelArea.setPadding(new Insets(0, 40, 50, 0));
         setBottom(cancelArea);
+        registerHandlers();
+    }
+
+    private void registerHandlers() {
+        registerButton.setOnAction(e -> {
+            try {
+                clientService.register(
+                        "Student",
+                        "S1",
+                        "s1",
+                        "s1@email.com",
+                        "d1"
+                );
+            } catch (IOException ex) {
+                System.out.println("Client: ERROR on register");
+            }
+        });
     }
 
     private VBox createContent() {

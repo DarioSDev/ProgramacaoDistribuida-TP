@@ -123,9 +123,9 @@ public class ClientService implements ClientAPI {
             System.out.println("[Client] Servidor: " + welcome);
 
             // 3. Autenticação (ou primeira mensagem)
-            out.println(Command.CLIENT_REGISTER_REQUEST);
+            out.println(Command.CONNECTION);
 
-            System.out.println("[Client] Enviado: " + Command.CLIENT_REGISTER_REQUEST);
+            System.out.println("[Client] Enviado: " + Command.CONNECTION);
 
             // 4. Receber confirmação
             String confirmation = in.readLine();
@@ -219,6 +219,22 @@ public class ClientService implements ClientAPI {
 
         out.println("LOGIN " + email + " " + pwd);
         return in.readLine();
+    }
+
+    @Override
+    public boolean register(String role, String name, String id, String email, String password) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        sb.append(Command.REGISTER_STUDENT);
+        sb.append(";");
+        sb.append(role);
+        sb.append(";");
+        sb.append(name);
+        sb.append(";");
+        sb.append(email);
+        sb.append(";");
+        sb.append(password);
+        out.println(sb);
+        return in.readLine() != null;
     }
 
     // ===============================================================

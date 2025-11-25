@@ -1,8 +1,13 @@
 package pt.isec.pd.common;
 
 public enum Command {
-    CLIENT_AUTH_REQUEST,
-    CLIENT_REGISTER_REQUEST;
+    CONNECTION,
+    LOGIN,
+    REGISTER_STUDENT,
+    REGISTER_TEACHER,
+    GET_USER_INFO,
+    CREATE_QUESTION,
+    LOGOUT;
 
     public static Command fromString(String s) {
         try {
