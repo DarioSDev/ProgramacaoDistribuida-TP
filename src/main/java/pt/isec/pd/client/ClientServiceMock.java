@@ -16,7 +16,7 @@ public class ClientServiceMock implements ClientAPI {
     }
 
     @Override
-    public boolean register(User user, String password) {
+    public boolean register(String role, String name, String id, String email, String password) {
         return true;
     }
 

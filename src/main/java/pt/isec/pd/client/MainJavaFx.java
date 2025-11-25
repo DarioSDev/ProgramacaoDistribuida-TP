@@ -15,12 +15,6 @@ public class MainJavaFx extends Application {
             System.err.println("Uso: java -jar client.jar <IP_DIRETORIA> <PORTO_UDP>");
             System.exit(1);
         }
-
-        String directoryHost = args.getRaw().get(0);
-        int directoryPort = Integer.parseInt(args.getRaw().get(1));
-
-        client = new ClientService(directoryHost, directoryPort);
-        client.start();
     }
 
     @Override

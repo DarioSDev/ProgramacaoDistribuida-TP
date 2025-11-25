@@ -2,31 +2,46 @@ package pt.isec.pd.client;
 
 import pt.isec.pd.common.User;
 
+import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 
 public interface ClientAPI {
 
-    String sendLogin(String email, String password) throws Exception;
-
-    default boolean register(User user, String password) {
-        return false;
+    default String sendLogin(String email, String password) throws Exception {
+        throw new UnsupportedOperationException("sendLogin não implementado.");
     }
 
-    QuestionData getQuestionByCode(String code);
+    default boolean register(String role, String name, String id, String email, String password) throws IOException {
+        throw new UnsupportedOperationException("register não implementado.");
+    }
 
-    boolean submitAnswer(User user, String code, int index);
+    default QuestionData getQuestionByCode(String code) throws IOException {
+        throw new UnsupportedOperationException("getQuestionByCode não implementado.");
+    }
 
-    String validateQuestionCode(String code);
+    default boolean submitAnswer(User user, String code, int index) throws IOException {
+        throw new UnsupportedOperationException("submitAnswer não implementado.");
+    }
 
-    AnswerResultData getAnswerResult(User user, String code);
+    default String validateQuestionCode(String code) throws IOException {
+        throw new UnsupportedOperationException("validateQuestionCode não implementado.");
+    }
 
-    List<HistoryItem> getStudentHistory(User user, LocalDate start, LocalDate end, String filter);
+    default AnswerResultData getAnswerResult(User user, String code) throws IOException {
+        throw new UnsupportedOperationException("getAnswerResult não implementado.");
+    }
 
-    List<TeacherQuestionItem> getTeacherQuestions(User user, String filter);
+    default List<HistoryItem> getStudentHistory(User user, LocalDate start, LocalDate end, String filter) throws IOException {
+        throw new UnsupportedOperationException("getStudentHistory não implementado.");
+    }
 
-    boolean createQuestion(
+    default List<TeacherQuestionItem> getTeacherQuestions(User user, String filter) throws IOException {
+        throw new UnsupportedOperationException("getTeacherQuestions não implementado.");
+    }
+
+    default boolean createQuestion(
             User user,
             String text,
             List<String> options,
@@ -35,9 +50,15 @@ public interface ClientAPI {
             LocalTime st,
             LocalDate ed,
             LocalTime et
-    );
+    ) throws IOException {
+        throw new UnsupportedOperationException("createQuestion não implementado.");
+    }
 
-    TeacherResultsData getQuestionResults(User user, String questionCode);
+    default TeacherResultsData getQuestionResults(User user, String questionCode) throws IOException {
+        throw new UnsupportedOperationException("getQuestionResults não implementado.");
+    }
+
+    // --- Records e Enums auxiliares ---
 
     record QuestionData(String text, List<String> options) {}
 
@@ -58,6 +79,4 @@ public interface ClientAPI {
     ) {}
 
     record TeacherQuestionItem(String title, LocalDate date, String status) {}
-
 }
-
