@@ -107,23 +107,67 @@ public class RegisterView extends BorderPane {
     }
 
     private void registerHandlers() {
-        registerButton.setOnAction(e -> {
+        registerButton.setOnAction(e -> handleRegistration());
+    }
+
+    private void handleRegistration() {
+        // 1. Recolher Dados
+        RoleItem selectedRole = roleCombo.getValue();
+        String name = nameField.getText();
+        String email = emailField.getText();
+        String password = passwordField.getText();
+        String confirmPassword = confirmPasswordField.getText();
+        String extraId = roleExtraField.getText();
+
+        // 2. Validação
+        if (selectedRole == null || name.isBlank() || email.isBlank() || password.isBlank() || confirmPassword.isBlank() || extraId.isBlank()) {
+            showAlert(Alert.AlertType.ERROR, "Campos Incompletos", "Por favor preencha todos os campos obrigatórios.");
+            return;
+        }
+
+        if (!password.equals(confirmPassword)) {
+            showAlert(Alert.AlertType.ERROR, "Password Inválida", "A confirmação da password não coincide.");
+            return;
+        }
+
+        // 3. Enviar Pedido (Assíncrono)
+        String roleLabel = selectedRole.label;
+
+        new Thread(() -> {
             try {
-                clientService.register(
-                        "Student",
-                        "S1",
-                        "s1",
-                        "s1@email.com",
-                        "d1"
-                );
-            } catch (IOException ex) {
-                System.out.println("Client: ERROR on register");
+                boolean success = clientService.register(roleLabel, name, extraId, email, password);
+
+                Platform.runLater(() -> {
+                    if (success) {
+                        showAlert(Alert.AlertType.INFORMATION, "Sucesso", "Registo efetuado com sucesso! Faça login.");
+                        stateManager.showLogin();
+                    } else {
+                        showAlert(Alert.AlertType.ERROR, "Erro no Registo", "O servidor não aceitou o registo (Email/ID já existente?).");
+                    }
+                });
+
+            } catch (IOException e) {
+                Platform.runLater(() -> {
+                    showAlert(Alert.AlertType.ERROR, "Erro de Rede", "Não foi possível contactar o servidor: " + e.getMessage());
+                });
+            } catch (Exception e) {
+                Platform.runLater(() -> {
+                    showAlert(Alert.AlertType.ERROR, "Erro Inesperado", e.getMessage());
+                    e.printStackTrace();
+                });
             }
-        });
+        }).start();
+    }
+
+    private void showAlert(Alert.AlertType type, String title, String content) {
+        Alert alert = new Alert(type);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(content);
+        alert.showAndWait();
     }
 
     private VBox createContent() {
-
         setupRoleCombo();
 
         styleField(nameField, "Name");

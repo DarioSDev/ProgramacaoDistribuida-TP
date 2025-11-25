@@ -153,35 +153,30 @@ public class LoginView extends BorderPane {
         setControlsDisabled(true);
         setMessage("A ligar ao servidor...", false);
 
-        new Thread(() -> {
-            try {
-                String response = clientService.sendLogin(email, password);
+        try {
+            String response = clientService.sendLogin(email, password);
+            System.out.println("LOGIN RESPONSE: " + response);
 
-                Platform.runLater(() -> {
-                    if (response == null) {
-                        setMessage("Servidor não respondeu.", true);
-                    } else if (response.startsWith("OK")) {
-                        String[] parts = response.split(";");
-                        String role = parts.length > 1 ? parts[1] : "student";
-                        String name = parts.length > 2 ? parts[2] : email;
-                        String extra = parts.length > 3 ? parts[3] : "";
+            Platform.runLater(() -> {
+                if (response == null) {
+                    setMessage("Servidor não respondeu.", true);
+                } else if (response.startsWith("OK")) {
+                    String[] parts = response.split(";");
+                    String role = parts.length > 1 ? parts[1] : "student";
+                    String name = parts.length > 2 ? parts[2] : email;
+                    String extra = parts.length > 3 ? parts[3] : "";
 
-                        User u = new User(name, email, password, role, extra);
-                        stateManager.showMenu(u);
-                    } else {
-                        setMessage("Credenciais inválidas.", true);
-                    }
+                    User u = new User(name, email, password, role, extra);
+                    stateManager.showMenu(u);
+                } else {
+                    setMessage("Credenciais inválidas.", true);
+                }
 
-                    setControlsDisabled(false);
-                });
-
-            } catch (Exception e) {
-                Platform.runLater(() -> {
-                    setMessage("Erro de ligação ao servidor.", true);
-                    setControlsDisabled(false);
-                });
-            }
-        }).start();
+                setControlsDisabled(false);
+            });
+        } catch (Exception e) {
+            System.out.println("ERROR TRYING TO LOGIN");
+        }
     }
 
     public String getEmail() { return emailField.getText(); }

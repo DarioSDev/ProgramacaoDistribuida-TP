@@ -354,9 +354,9 @@ public class ServerService {
                                 String pass = parts[2];
 
                                 if (queryPerformer.authenticate(email, pass)) {
-                                    response = "LOGIN_SUCCESS";
+                                    response = "OK";
                                 } else {
-                                    response = "LOGIN_FAILED";
+                                    response = "NOK";
                                 }
                             }
                             break;

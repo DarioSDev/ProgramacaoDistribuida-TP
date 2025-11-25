@@ -32,6 +32,11 @@ public class ClientService implements ClientAPI {
 
     private volatile boolean running = true;
 
+    // 🔒 Sincronização
+    private final Object lock = new Object();
+    private String syncResponse = null;
+    private boolean expectingResponse = false;
+
 
     public ClientService(String directoryHost, int directoryPort) {
         this.directoryHost = directoryHost;
@@ -144,8 +149,7 @@ public class ClientService implements ClientAPI {
         boolean hardFailure = false;
 
         try {
-            if (activeSocket != null)
-                activeSocket.setSoTimeout(0);
+            if (activeSocket != null) activeSocket.setSoTimeout(0);
 
             while (running && activeSocket != null && !activeSocket.isClosed()) {
                 String serverMsg = in.readLine();
@@ -155,12 +159,30 @@ public class ClientService implements ClientAPI {
                     break;
                 }
 
-                System.out.println("[Server] " + serverMsg);
+                // 🔒 Lógica de Entrega da Mensagem
+                synchronized (lock) {
+                    if (expectingResponse) {
+                        // Se o método de Login/Registo está à espera, entregamos a ele
+                        syncResponse = serverMsg;
+                        expectingResponse = false;
+                        lock.notifyAll(); // Acorda a thread que está no wait()
+                    } else {
+                        // Caso contrário, é uma mensagem assíncrona (notificação)
+                        System.out.println("[Server Async] " + serverMsg);
+                    }
+                }
             }
 
         } catch (IOException e) {
             System.err.println("[Client] Conexão perdida: " + e.getMessage());
             hardFailure = true;
+
+            // Desbloquear quem estiver à espera em caso de erro
+            synchronized (lock) {
+                syncResponse = null;
+                expectingResponse = false;
+                lock.notifyAll();
+            }
 
         } finally {
             closeResources();
@@ -213,28 +235,76 @@ public class ClientService implements ClientAPI {
 
 
     @Override
-    public synchronized String sendLogin(String email, String pwd) throws IOException {
-        if (out == null)
-            throw new IOException("Ligação TCP não está ativa.");
+    public String sendLogin(String email, String pwd) throws IOException {
+        if (out == null) throw new IOException("Ligação TCP não está ativa.");
 
-        out.println("LOGIN " + email + " " + pwd);
-        return in.readLine();
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                StringBuilder sb = new StringBuilder();
+                sb.append(Command.LOGIN).append(";").append(email).append(";").append(pwd);
+                out.println(sb.toString());
+
+                // Esperar pela resposta (timeout de 5s para segurança)
+                lock.wait(5000);
+
+                if (syncResponse == null) {
+                    expectingResponse = false; // Cancelar espera se estourou o tempo
+                    return "TIMEOUT";
+                }
+
+                System.out.println("RESPONSE LOGIN: " + syncResponse);
+                return syncResponse;
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return "ERROR";
+            }
+        }
     }
 
     @Override
     public boolean register(String role, String name, String id, String email, String password) throws IOException {
-        StringBuilder sb = new StringBuilder();
-        sb.append(Command.REGISTER_STUDENT);
-        sb.append(";");
-        sb.append(role);
-        sb.append(";");
-        sb.append(name);
-        sb.append(";");
-        sb.append(email);
-        sb.append(";");
-        sb.append(password);
-        out.println(sb);
-        return in.readLine() != null;
+        if (out == null) throw new IOException("Ligação TCP não está ativa.");
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                StringBuilder sb = new StringBuilder();
+                // Ajusta o comando conforme o Enum (REGISTER_STUDENT ou TEACHER)
+                if ("student".equalsIgnoreCase(role)) {
+                    sb.append("REGISTER_STUDENT");
+                } else {
+                    sb.append("REGISTER_TEACHER");
+                }
+
+                sb.append(";").append(name)
+                        .append(";").append(email)
+                        .append(";").append(password)
+                        .append(";").append(id); // ID é o último campo
+
+                out.println(sb.toString());
+
+                lock.wait(5000); // Espera 5s no máximo
+
+                if (syncResponse == null) {
+                    expectingResponse = false;
+                    return false;
+                }
+
+                System.out.println("RESPONSE REGISTER: " + syncResponse);
+                // Verifica se a resposta contém sucesso (ajusta conforme o teu servidor responde)
+                return syncResponse.toUpperCase().contains("SUCCESS") || syncResponse.equalsIgnoreCase("true");
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
     }
 
     // ===============================================================
