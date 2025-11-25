@@ -5,10 +5,21 @@ import javafx.stage.Stage;
 
 public class MainJavaFx extends Application {
 
+
+    @Override
+    public void init() throws Exception {
+        super.init();
+        Parameters args = getParameters();
+        if (args.getRaw().size() != 2) {
+            System.err.println("Uso: java -jar client.jar <IP_DIRETORIA> <PORTO_UDP>");
+            System.exit(1);
+        }
+    }
+
     @Override
     public void start(Stage stage) {
 
-        boolean USE_REAL_SERVER = false;
+        boolean USE_REAL_SERVER = true;
 
         ClientAPI clientAPI;
 
