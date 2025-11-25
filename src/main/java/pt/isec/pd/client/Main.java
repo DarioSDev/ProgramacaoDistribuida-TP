@@ -15,16 +15,4 @@ public class Main {
         Application.launch(MainJavaFx.class, args);
     }
 
-//    public static void main(String[] args) {
-//        if (args.length < 2) {
-//            System.err.println("Uso: java -jar client.jar <IP_DIRETORIA> <PORTO_UDP>");
-//            return;
-//        }
-//
-//        String directoryHost = args[0];
-//        int directoryPort = Integer.parseInt(args[1]);
-//
-//        ClientService client = new ClientService(directoryHost, directoryPort);
-//        client.start();
-//    }
 }
