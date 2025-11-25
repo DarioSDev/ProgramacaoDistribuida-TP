@@ -1,4 +1,4 @@
-package pt.isec.pd.client.gui.view;
+package pt.isec.pd.client.gui.view.teacher;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -21,7 +21,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.Optional;
 
 public class CheckQuestionDataView extends BorderPane {
 

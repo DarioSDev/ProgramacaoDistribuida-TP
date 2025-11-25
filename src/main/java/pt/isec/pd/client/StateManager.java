@@ -4,6 +4,10 @@ import javafx.scene.Scene;
 import javafx.scene.layout.StackPane;
 import javafx.stage.Stage;
 import pt.isec.pd.client.gui.view.*;
+import pt.isec.pd.client.gui.view.student.EditProfileStudentView;
+import pt.isec.pd.client.gui.view.student.MenuStudentView;
+import pt.isec.pd.client.gui.view.student.StudentQuestionHistoryView;
+import pt.isec.pd.client.gui.view.teacher.*;
 import pt.isec.pd.common.Question;
 import pt.isec.pd.common.User;
 
@@ -86,7 +90,7 @@ public class StateManager {
     }
 
     public void showStudentHistory(User user) {
-        setScene(new StudentHistoryView(client, this, user),
+        setScene(new StudentQuestionHistoryView(client, this, user),
                 "Questia - History");
     }
 

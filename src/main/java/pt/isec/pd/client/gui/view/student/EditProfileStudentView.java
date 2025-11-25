@@ -1,12 +1,9 @@
-package pt.isec.pd.client.gui.view;
+package pt.isec.pd.client.gui.view.student;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.Cursor;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
-import javafx.scene.paint.Color;
-import javafx.scene.shape.SVGPath;
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
 import pt.isec.pd.common.User;

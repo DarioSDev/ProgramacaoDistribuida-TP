@@ -1,4 +1,4 @@
-package pt.isec.pd.client.gui.view;
+package pt.isec.pd.client.gui.view.student;
 
 import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
@@ -36,6 +36,76 @@ public class HeaderStudentView extends BorderPane {
     private static final String SVG_HISTORY =
             "M5.01113 11.5747L6.29289 10.2929C6.68342 9.90236 7.31658 9.90236 7.70711 10.2929C8.09763 10.6834 8.09763 11.3166 7.70711 11.7071L4.70711 14.7071C4.51957 14.8946 4.26522 15 4 15C3.73478 15 3.48043 14.8946 3.29289 14.7071L0.292893 11.7071C-0.0976312 11.3166 -0.0976312 10.6834 0.292893 10.2929C0.683417 9.90236 1.31658 9.90236 1.70711 10.2929L3.00811 11.5939C3.22118 6.25933 7.61318 2 13 2C18.5229 2 23 6.47715 23 12C23 17.5228 18.5229 22 13 22C9.85818 22 7.0543 20.5499 5.22264 18.2864C4.87523 17.8571 4.94164 17.2274 5.37097 16.88C5.80029 16.5326 6.42997 16.599 6.77738 17.0283C8.24563 18.8427 10.4873 20 13 20C17.4183 20 21 16.4183 21 12C21 7.58172 17.4183 4 13 4C8.72442 4 5.23222 7.35412 5.01113 11.5747ZM13 5C13.5523 5 14 5.44772 14 6V11.5858L16.7071 14.2929C17.0976 14.6834 17.0976 15.3166 16.7071 15.7071C16.3166 16.0976 15.6834 16.0976 15.2929 15.7071L12.2929 12.7071C12.1054 12.5196 12 12.2652 12 12V6C12 5.44772 12.4477 5 13 5Z";
 
+    private static final String SVG_LOGOUT =
+            "M14.7961 0H12.1961C8.99609 0 6.99609 2 6.99609 5.2V9.25H13.2461C13.6561 9.25 13.9961 9.59 "
+                    + "13.9961 10C13.9961 10.41 13.6561 10.75 13.2461 10.75H6.99609V14.8C6.99609 18 8.99609 "
+                    + "20 12.1961 20H14.7861C17.9861 20 19.9861 18 19.9861 14.8V5.2C19.9961 2 17.9961 0 "
+                    + "14.7961 0Z M2.5575 9.2498L4.6275 7.17984C4.7775 7.02984 4.8475 6.83984 4.8475 6.64984C4.8475 "
+                    + "6.45984 4.7775 6.25984 4.6275 6.11984C4.3375 5.82984 3.8575 5.82984 3.5675 6.11984L0.2175 "
+                    + "9.4698C-0.0725 9.7598 -0.0725 10.2398 0.2175 10.5298L3.5675 13.8798C3.8575 14.1698 4.3375 "
+                    + "14.1698 4.6275 13.8798C4.9175 13.5898 4.9175 13.1098 4.6275 12.8198L2.5575 10.7498H6.9975V9.2498H2.5575Z";
+
+
+    public HeaderStudentView(StateManager stateManager, User user) {
+        this.stateManager = stateManager;
+        this.user = user;
+
+        setPrefHeight(HEIGHT);
+        setMinHeight(HEIGHT);
+        setMaxHeight(HEIGHT);
+
+        setStyle("-fx-background-color: " + COLOR_BG + ";");
+
+        setupLayout();
+        setupDropdown();
+    }
+
+    private void setupLayout() {
+        Label title = new Label("Questia");
+        title.setStyle("""
+            -fx-font-size: 60px;
+            -fx-font-weight: bold;
+            -fx-text-fill: #FF7A00;
+        """);
+
+        BorderPane.setMargin(title, new Insets(25, 0, 0, 40));
+        setLeft(title);
+
+        StackPane menuBtn = createMenuButton();
+        menuBtn.setOnMouseClicked(e -> toggleDropdown());
+
+        HBox rightBox = new HBox(menuBtn);
+        rightBox.setAlignment(Pos.TOP_RIGHT);
+        rightBox.setPadding(new Insets(45, 40, 0, 0));
+        setRight(rightBox);
+    }
+
+    private StackPane createMenuButton() {
+        StackPane btn = new StackPane();
+        btn.setCursor(Cursor.HAND);
+
+        btn.setPrefSize(40, 40);
+        btn.setMinSize(40, 40);
+        btn.setMaxSize(40, 40);
+
+        btn.setStyle("""
+        -fx-background-color: #FF7A00;
+        -fx-background-radius: 10;
+    """);
+
+        VBox lines = new VBox(3);
+        lines.setAlignment(Pos.CENTER);
+
+        Rectangle r1 = new Rectangle(14, 2.2, Color.BLACK);
+        Rectangle r2 = new Rectangle(14, 2.2, Color.BLACK);
+        Rectangle r3 = new Rectangle(14, 2.2, Color.BLACK);
+
+        lines.getChildren().addAll(r1, r2, r3);
+        btn.getChildren().add(lines);
+
+        return btn;
+    }
+
     private Group createProfileIcon() {
         SVGPath p1 = new SVGPath();
         p1.setContent(
@@ -64,72 +134,6 @@ public class HeaderStudentView extends BorderPane {
 
         return g;
     }
-
-    private static final String SVG_LOGOUT =
-            "M14.7961 0H12.1961C8.99609 0 6.99609 2 6.99609 5.2V9.25H13.2461C13.6561 9.25 13.9961 9.59 "
-                    + "13.9961 10C13.9961 10.41 13.6561 10.75 13.2461 10.75H6.99609V14.8C6.99609 18 8.99609 "
-                    + "20 12.1961 20H14.7861C17.9861 20 19.9861 18 19.9861 14.8V5.2C19.9961 2 17.9961 0 "
-                    + "14.7961 0Z M2.5575 9.2498L4.6275 7.17984C4.7775 7.02984 4.8475 6.83984 4.8475 6.64984C4.8475 "
-                    + "6.45984 4.7775 6.25984 4.6275 6.11984C4.3375 5.82984 3.8575 5.82984 3.5675 6.11984L0.2175 "
-                    + "9.4698C-0.0725 9.7598 -0.0725 10.2398 0.2175 10.5298L3.5675 13.8798C3.8575 14.1698 4.3375 "
-                    + "14.1698 4.6275 13.8798C4.9175 13.5898 4.9175 13.1098 4.6275 12.8198L2.5575 10.7498H6.9975V9.2498H2.5575Z";
-
-
-    public HeaderStudentView(StateManager stateManager, User user) {
-        this.stateManager = stateManager;
-        this.user = user;
-
-        setPrefHeight(HEIGHT);
-        setStyle("-fx-background-color: " + COLOR_BG + ";");
-
-        setupLayout();
-        setupDropdown();
-    }
-
-    private void setupLayout() {
-        Label title = new Label("Questia");
-        title.setStyle("""
-            -fx-font-size: 60px;
-            -fx-font-weight: bold;
-            -fx-text-fill: #FF7A00;
-        """);
-        BorderPane.setMargin(title, new Insets(25, 0, 0, 40));
-        setLeft(title);
-
-        StackPane menuBtn = createMenuButton();
-        menuBtn.setOnMouseClicked(e -> toggleDropdown());
-
-        HBox rightBox = new HBox(menuBtn);
-        rightBox.setAlignment(Pos.TOP_RIGHT);
-        rightBox.setPadding(new Insets(45, 40, 0, 0));
-        setRight(rightBox);
-    }
-    private StackPane createMenuButton() {
-        StackPane btn = new StackPane();
-        btn.setCursor(Cursor.HAND);
-
-        btn.setPrefSize(40, 40);
-        btn.setMinSize(40, 40);
-        btn.setMaxSize(40, 40);
-
-        btn.setStyle("""
-        -fx-background-color: #FF7A00;
-        -fx-background-radius: 10;
-    """);
-
-        VBox lines = new VBox(3);
-        lines.setAlignment(Pos.CENTER);
-
-        Rectangle r1 = new Rectangle(14, 2.2, Color.BLACK);
-        Rectangle r2 = new Rectangle(14, 2.2, Color.BLACK);
-        Rectangle r3 = new Rectangle(14, 2.2, Color.BLACK);
-
-        lines.getChildren().addAll(r1, r2, r3);
-        btn.getChildren().add(lines);
-
-        return btn;
-    }
-
 
     private void setupDropdown() {
 

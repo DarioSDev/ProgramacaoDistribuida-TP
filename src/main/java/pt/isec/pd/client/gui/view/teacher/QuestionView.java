@@ -1,4 +1,4 @@
-package pt.isec.pd.client.gui.view;
+package pt.isec.pd.client.gui.view.teacher;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -12,6 +12,7 @@ import javafx.scene.paint.Color;
 import javafx.scene.shape.SVGPath;
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
+import pt.isec.pd.client.gui.view.student.HeaderStudentView;
 import pt.isec.pd.common.User;
 
 import java.util.List;
@@ -211,7 +212,8 @@ public class QuestionView extends BorderPane {
 
         if (isCorrect) {
             icon.setContent(SVG_CHECK_CIRCLE);
-            icon.setFill(Color.BLACK);
+            icon.setFill(Color.GREEN
+            );
             msg.setText("Correct Answer!");
         } else {
             icon.setContent(SVG_CROSS_CIRCLE);
