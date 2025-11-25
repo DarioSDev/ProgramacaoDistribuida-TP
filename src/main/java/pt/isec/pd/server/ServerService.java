@@ -22,7 +22,7 @@ public class ServerService {
     private final String directoryHost;
     private final int directoryPort;
     private final String multicastGroupIp;
-    private final String dbDirectoryPath;
+    private String dbDirectoryPath;
 
     private DatabaseManager dbManager;
     private QueryPerformer queryPerformer;
@@ -101,31 +101,47 @@ public class ServerService {
     }
 
     private void initializeDatabaseLogic() {
+        dbDirectoryPath = dbDirectoryPath + "/" + this.tcpClientPort;
         File dir = new File(dbDirectoryPath);
-        if (!dir.exists()) dir.mkdirs();
+        if (!dir.exists()) {
+            System.out.println("[DB-INIT] Diretório não existe. A criar: " + dir.getAbsolutePath());
+            dir.mkdirs();
+        } else {
+            System.out.println("[DB-INIT] Diretório existe: " + dir.getAbsolutePath());
+        }
+
+        System.out.println("[DB-INIT] Diretório de BD: " + dir.getAbsolutePath());
+        System.out.println("[DB-INIT] isPrimary = " + isPrimary);
 
         if (isPrimary) {
             File[] dbFiles = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".db"));
             File selectedFile;
 
             if (dbFiles == null || dbFiles.length == 0) {
-                System.out.println("[Server] Nenhuma BD encontrada. Criando nova versão 0...");
-                selectedFile = new File(dir, "data_v0.db");
+                System.out.println("[DB-INIT][PRIMARY] Nenhuma BD encontrada. Criando nova...");
+                selectedFile = new File(dir, "data.db");
             } else {
+                System.out.println("[DB-INIT][PRIMARY] BDs encontradas:");
+                for (File f : dbFiles)
+                    System.out.println("   → " + f.getName() + " (size=" + f.length() + " bytes)");
+
                 Arrays.sort(dbFiles, Comparator.comparingLong(File::lastModified));
                 selectedFile = dbFiles[dbFiles.length - 1];
-                System.out.println("[Server] Usando BD mais recente: " + selectedFile.getName());
+                System.out.println("[DB-INIT][PRIMARY] Selecionada: " + selectedFile.getAbsolutePath());
             }
 
             this.dbManager = new DatabaseManager(dbDirectoryPath, selectedFile.getName());
+            System.out.println("[DB-INIT][PRIMARY] A criar schema...");
             this.dbManager.createSchema();
+            System.out.println("[DB-INIT][PRIMARY] Schema criado com sucesso!");
+            System.out.println("[DB-INIT][PRIMARY] Versão BD: " + dbManager.getDbVersion());
+
             this.queryPerformer = new QueryPerformer(dbManager);
 
         } else {
-            System.out.println("[Server] Backup mode. A aguardar sincronização...");
-
+            System.out.println("[DB-INIT][BACKUP] Modo backup. A aguardar sincronização...");
             if (!downloadDatabaseFromPrimary()) {
-                System.err.println("[Server] Falha crítica na sincronização. A encerrar.");
+                System.err.println("[DB-INIT][BACKUP] ERRO: Falha ao receber base de dados.");
                 shutdown();
                 System.exit(1);
             }
@@ -178,9 +194,13 @@ public class ServerService {
     }
 
     private boolean downloadDatabaseFromPrimary() {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss");
-        String newFileName = "data_backup_" + sdf.format(new Date()) + ".db";
+        String newFileName = "data.db";
         File syncedFile = new File(dbDirectoryPath, newFileName);
+
+        System.out.println("[SYNC][BACKUP] A tentar ligação ao primary para download:");
+        System.out.println("   IP   = " + primaryIp);
+        System.out.println("   PORT = " + primaryDbPort);
+        System.out.println("   File destino = " + syncedFile.getAbsolutePath());
 
         try (Socket socket = new Socket(primaryIp, primaryDbPort);
              InputStream in = socket.getInputStream();
@@ -190,44 +210,79 @@ public class ServerService {
 
             byte[] buffer = new byte[8192];
             int read;
+            long totalBytes = 0;
+
             while ((read = in.read(buffer)) != -1) {
                 fos.write(buffer, 0, read);
+                totalBytes += read;
             }
 
-            System.out.println("[Server] Download concluído.");
+            System.out.println("[SYNC][BACKUP] Download concluído. Bytes recebidos = " + totalBytes);
+
             this.dbManager = new DatabaseManager(dbDirectoryPath, newFileName);
-            System.out.println("[Server] DatabaseManager inicializado com versão: " + dbManager.getDbVersion());
+
+            System.out.println("[SYNC][BACKUP] BD recebida contém tabelas:");
+            System.out.println("   version = " + dbManager.getDbVersion());
+
             return true;
 
         } catch (IOException e) {
-            System.err.println("[Server] Erro sync: " + e.getMessage());
-            if (syncedFile.exists()) syncedFile.delete();
+            System.err.println("[SYNC][BACKUP] ERRO: " + e.getMessage());
+            if (syncedFile.exists()) {
+                System.err.println("[SYNC][BACKUP] Apagando ficheiro incompleto: " + syncedFile.getAbsolutePath());
+                syncedFile.delete();
+            }
             return false;
         }
     }
 
+
     private void sendDatabase(Socket peer) {
-        if (dbManager == null || !dbManager.getDbFile().exists()) return;
+        if (dbManager == null) {
+            System.err.println("[SYNC][PRIMARY] ERRO: dbManager == null");
+            return;
+        }
+
+        File dbFile = dbManager.getDbFile();
+        if (!dbFile.exists()) {
+            System.err.println("[SYNC][PRIMARY] ERRO: ficheiro de BD não existe! " + dbFile.getAbsolutePath());
+            return;
+        }
+
+        System.out.println("[SYNC][PRIMARY] A enviar BD ao backup:");
+        System.out.println("   Ficheiro = " + dbFile.getAbsolutePath());
+        System.out.println("   Tamanho  = " + dbFile.length() + " bytes");
+
+        if (!dbManager.isSchemaReady()) {
+            System.err.println("[SYNC][PRIMARY] Schema ainda não está pronto! NÃO envio BD.");
+            return;
+        }
 
         dbManager.getReadLock().lock();
         try {
-            System.out.println("[Server] A enviar BD...");
-            try (FileInputStream fis = new FileInputStream(dbManager.getDbFile());
+            try (FileInputStream fis = new FileInputStream(dbFile);
                  OutputStream out = peer.getOutputStream()) {
 
                 byte[] buffer = new byte[8192];
                 int read;
+                long totalSent = 0;
+
                 while ((read = fis.read(buffer)) != -1) {
                     out.write(buffer, 0, read);
+                    totalSent += read;
                 }
+                out.flush();
+                peer.shutdownOutput();
+
+                System.out.println("[SYNC][PRIMARY] Envio concluído. Total enviado = " + totalSent + " bytes");
             }
-            System.out.println("[Server] Envio concluído.");
         } catch (IOException e) {
-            System.err.println("[Server] Erro ao enviar: " + e.getMessage());
+            System.err.println("[SYNC][PRIMARY] ERRO ao enviar: " + e.getMessage());
         } finally {
             dbManager.getReadLock().unlock();
         }
     }
+
 
     private Thread startDirectoryHeartbeatListener() {
         Thread listenerThread = new Thread(() -> {

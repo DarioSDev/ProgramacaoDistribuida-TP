@@ -162,7 +162,6 @@ public class ClientService implements ClientAPI {
                 // 🔒 Lógica de Entrega da Mensagem
                 synchronized (lock) {
                     if (expectingResponse) {
-                        // Se o método de Login/Registo está à espera, entregamos a ele
                         syncResponse = serverMsg;
                         expectingResponse = false;
                         lock.notifyAll(); // Acorda a thread que está no wait()
@@ -283,9 +282,9 @@ public class ClientService implements ClientAPI {
                 }
 
                 sb.append(";").append(name)
-                        .append(";").append(email)
-                        .append(";").append(password)
-                        .append(";").append(id); // ID é o último campo
+                .append(";").append(email)
+                .append(";").append(password)
+                .append(";").append(id); // ID é o último campo
 
                 out.println(sb.toString());
 

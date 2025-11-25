@@ -5,8 +5,11 @@ import pt.isec.pd.common.Student;
 import pt.isec.pd.common.Teacher;
 import pt.isec.pd.common.User;
 
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.PBEKeySpec;
 import java.sql.*;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 
 public class QueryPerformer {
@@ -21,7 +24,11 @@ public class QueryPerformer {
         if (user instanceof Student) {
             sql = "INSERT INTO estudante (email, name, password, student_number) VALUES (?, ?, ?, ?)";
         } else if (user instanceof Teacher) {
-            sql = "INSERT INTO docente (email, name, password, id_uuid) VALUES (?, ?, ?, ?)";
+            if (validateTeacherCode(user.getTeacherCode())) {
+                sql = "INSERT INTO docente (email, name, password, id_uuid) VALUES (?, ?, ?, ?)";
+            } else {
+                return false;
+            }
         } else {
             return false;
         }
@@ -51,6 +58,39 @@ public class QueryPerformer {
             return false;
         } finally {
             dbManager.getWriteLock().unlock();
+        }
+    }
+
+    public boolean validateTeacherCode(String teacherCode) {
+        String sql = "SELECT teacher_hash FROM config WHERE id = 1";
+
+        dbManager.getReadLock().lock();
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            ResultSet rs = pstmt.executeQuery();
+
+            if (!rs.next()) {
+                System.err.println("[DB] ERRO: config.id=1 não encontrado.");
+                return false;
+            }
+
+            String storedHash = rs.getString("teacher_hash");
+            if (storedHash == null || storedHash.isEmpty()) {
+                System.err.println("[DB] ERRO: teacher_hash não está definido na BD.");
+                return false;
+            }
+
+            // Gerar hash do código introduzido
+            String inputHash = dbManager.hashCode(teacherCode);
+
+            return inputHash.equals(storedHash);
+
+        } catch (SQLException e) {
+            System.err.println("[DB] Erro ao validar teacherCode: " + e.getMessage());
+            return false;
+        } finally {
+            dbManager.getReadLock().unlock();
         }
     }
 

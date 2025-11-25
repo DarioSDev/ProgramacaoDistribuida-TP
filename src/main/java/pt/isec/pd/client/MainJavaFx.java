@@ -5,8 +5,6 @@ import javafx.stage.Stage;
 
 public class MainJavaFx extends Application {
 
-    ClientService client;
-
     @Override
     public void init() throws Exception {
         super.init();
