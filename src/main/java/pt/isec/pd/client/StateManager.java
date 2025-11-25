@@ -6,6 +6,7 @@ import javafx.stage.Stage;
 import pt.isec.pd.client.gui.view.*;
 import pt.isec.pd.client.gui.view.student.EditProfileStudentView;
 import pt.isec.pd.client.gui.view.student.MenuStudentView;
+import pt.isec.pd.client.gui.view.student.QuestionView;
 import pt.isec.pd.client.gui.view.student.StudentQuestionHistoryView;
 import pt.isec.pd.client.gui.view.teacher.*;
 import pt.isec.pd.common.Question;
