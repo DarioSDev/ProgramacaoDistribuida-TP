@@ -12,6 +12,7 @@ import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.shape.SVGPath;
 import pt.isec.pd.client.StateManager;
+import pt.isec.pd.client.UserManager;
 import pt.isec.pd.common.User;
 
 public class HeaderView extends BorderPane {
@@ -148,7 +149,10 @@ public class HeaderView extends BorderPane {
         profile.setOnAction(e -> { toggleDropdown(); stateManager.showEditProfile(user); });
 
         Button logout = createDropdownButton("Logout", SVG_LOGOUT, false, true);
-        logout.setOnAction(e -> { toggleDropdown(); stateManager.showLogin(); });
+        logout.setOnAction(e -> {
+            toggleDropdown();
+            UserManager.getInstance().logOut();
+            stateManager.showLogin(); });
 
         dropdownMenu.getChildren().setAll(home, history, newQ, profile, logout);
     }
