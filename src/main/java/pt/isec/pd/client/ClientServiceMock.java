@@ -140,4 +140,11 @@ public class ClientServiceMock implements ClientAPI {
         if (code.equalsIgnoreCase("MATH001")) return dataMath;
         return null;
     }
+
+    @Override
+    public boolean deleteQuestion(String questionId) {
+        System.out.println("\n[MOCK] DELETE QUESTION");
+        System.out.println("Simulating deletion of question ID: " + questionId);
+        return true;
+    }
 }

@@ -84,4 +84,10 @@ public interface ClientAPI {
     ) {}
 
     record TeacherQuestionItem(String title, LocalDate date, String status) {}
+
+    default boolean deleteQuestion(String questionId) {
+		throw new UnsupportedOperationException("deleteQuestion não implementado.");
+	}
+
 }
+
