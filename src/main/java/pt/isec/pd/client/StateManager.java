@@ -3,6 +3,8 @@ package pt.isec.pd.client;
 import javafx.scene.Scene;
 import javafx.scene.layout.StackPane;
 import javafx.stage.Stage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import pt.isec.pd.client.gui.view.*;
 import pt.isec.pd.client.gui.view.student.EditProfileStudentView;
 import pt.isec.pd.client.gui.view.student.MenuStudentView;
@@ -14,6 +16,7 @@ import pt.isec.pd.common.User;
 
 public class StateManager {
 
+    private static final Logger log = LoggerFactory.getLogger(StateManager.class);
     private final Stage stage;
     private final ClientAPI client;
 

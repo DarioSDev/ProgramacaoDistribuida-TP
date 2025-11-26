@@ -25,13 +25,25 @@ public class UserManager {
         return role;
     }
 
-    public UserManager setRole(RoleType role) {
-        this.role = role;
+    public UserManager setRole(String roleStr) {
+        if (roleStr == null) {
+            this.role = null;
+            return this;
+        }
+
+        try {
+            // 1. Converte para maiúsculas (ex: "student" -> "STUDENT")
+            // 2. Tenta encontrar no Enum
+            this.role = RoleType.valueOf(roleStr.toUpperCase().trim());
+        } catch (IllegalArgumentException e) {
+            System.err.println("Erro: Role desconhecido '" + roleStr + "'. A definir como null.");
+            this.role = null;
+        }
         return this;
     }
 
-    public UserManager setRole(String role) {
-        this.role = RoleType.valueOf(role);
+    public UserManager setRole(RoleType role) {
+        this.role = role;
         return this;
     }
 
