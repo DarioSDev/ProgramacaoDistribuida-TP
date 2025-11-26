@@ -74,10 +74,11 @@ public class DatabaseManager {
 
             System.out.println("[DB][SCHEMA] Tabela criada/verificada: <estudante>");
 
-
             stmt.execute("CREATE TABLE IF NOT EXISTS pergunta (" +
                     "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
                     "text TEXT NOT NULL, " +
+                    "start_time TEXT, " +  // NOVO
+                    "end_time TEXT, " +    // NOVO
                     "docente_email TEXT, " +
                     "FOREIGN KEY(docente_email) REFERENCES docente(email))");
 

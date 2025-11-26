@@ -360,159 +360,128 @@ public class ServerService {
     }
 
     private void rejectClient(Socket client) {
-        try (PrintWriter out = new PrintWriter(client.getOutputStream(), true)) {
-            out.println("ERRO: Server is Backup mode. Connect to Primary.");
+        ObjectOutputStream out = null;
+        try {
+            out = new ObjectOutputStream(client.getOutputStream());
+            out.flush();
+            out.writeObject(new Message(Command.CONNECTION, "ERRO: Server is Backup mode. Connect to Primary."));
+            out.flush();
         } catch (IOException ignored) {}
         finally {
+            try { if (out != null) out.close(); } catch (IOException ignored) {}
             try { client.close(); } catch (IOException ignored) {}
         }
     }
 
     private void handleClient(Socket client) {
-        BufferedReader in = null;
-        PrintWriter out = null;
+        ObjectInputStream in = null;
+        ObjectOutputStream out = null;
 
         try {
-            // Configurar streams de texto
-            in = new BufferedReader(new InputStreamReader(client.getInputStream()));
-            out = new PrintWriter(client.getOutputStream(), true);
+            out = new ObjectOutputStream(client.getOutputStream());
+            out.flush();
+            in = new ObjectInputStream(client.getInputStream());
 
             System.out.println("[Server] Cliente conectado: " + client.getRemoteSocketAddress());
 
-            // 1. Handshake Inicial (se necessário, ou mensagem de boas-vindas)
-            // Se o cliente espera ler algo logo ao conectar:
-            out.println("BEM-VINDO AO SERVIDOR PD");
+            out.writeObject(new Message(Command.CONNECTION, "BEM-VINDO AO SERVIDOR PD"));
+            out.flush();
 
-            // 2. Loop de Processamento
-            String msg;
-            while ((msg = in.readLine()) != null) {
-                msg = msg.trim();
-                if (msg.isEmpty()) continue;
+            Object obj;
+            while ((obj = in.readObject()) != null) {
+                if (!(obj instanceof Message)) {
+                    System.out.println("[Server] Recebido object não-Message: " + obj);
+                    continue;
+                }
 
+                Message msg = (Message) obj;
                 System.out.println("[Server] Recebido: " + msg);
 
-                // --- PROCESSAMENTO DE COMANDOS ---
-                String[] parts = msg.split(";"); // Usamos ';' como separador para permitir espaços nos nomes
-                String command = parts[0].toUpperCase();
+                Command cmd = msg.getCommand();
+                Object data = msg.getData();
 
-                String response = "ERRO: Comando desconhecido ou invalido";
+                Message responseMsg = null;
 
                 try {
-                    switch (command) {
-                        case "LOGIN":
-                            // Formato: LOGIN;email;password
-                            if (parts.length == 3) {
-                                String email = parts[1];
-                                String pass = parts[2];
-                                RoleType result = queryPerformer.authenticate(email, pass);
-
-                                if (result != RoleType.NONE) {
-                                    response = "OK;" + result;
+                    switch (cmd) {
+                        case LOGIN -> {
+                            if (data instanceof User loginUser) {
+                                RoleType role = queryPerformer.authenticate(loginUser.getEmail(), loginUser.getPassword());
+                                if (role != RoleType.NONE) {
+                                    User u = queryPerformer.getUser(loginUser.getEmail());
+                                    if (u == null) u = new User(null, loginUser.getEmail(), null);
+                                    u.setRole(role.name().toLowerCase());
+                                    responseMsg = new Message(Command.LOGIN, u);
                                 } else {
-                                    response = "NOK" + result;
+                                    responseMsg = new Message(Command.LOGIN, null);
                                 }
+                            } else {
+                                responseMsg = new Message(Command.LOGIN, null);
                             }
-                            break;
+                        }
 
-                        case "REGISTER_STUDENT":
-                            // Formato: REGISTER_STUDENT;nome;email;pass;numero_estudante
-                            if (parts.length == 5) {
-                                String name = parts[1];
-                                String email = parts[2];
-                                String pass = parts[3];
-                                String idNumber = parts[4];
-
-                                Student s = new Student(name, email, pass, idNumber);
-                                if (queryPerformer.registerUser(s)) {
-                                    response = "REGISTER_SUCCESS";
-                                } else {
-                                    response = "REGISTER_FAILED";
-                                }
+                        case REGISTER_STUDENT, REGISTER_TEACHER -> {
+                            if (data instanceof User newUser) {
+                                boolean ok = queryPerformer.registerUser(newUser);
+                                responseMsg = new Message(cmd, ok);
+                            } else {
+                                responseMsg = new Message(cmd, false);
                             }
-                            break;
+                        }
 
-                        case "REGISTER_TEACHER":
-                            // Formato: REGISTER_TEACHER;nome;email;pass
-                            if (parts.length == 5) {
-                                String name = parts[1];
-                                String email = parts[2];
-                                String pass = parts[3];
-                                String teacherCode = parts[4];
-
-                                Teacher t = new Teacher(name, email, pass, teacherCode);
-                                if (queryPerformer.registerUser(t)) {
-                                    response = "REGISTER_SUCCESS";
-                                } else {
-                                    response = "REGISTER_FAILED";
-                                }
-                            }
-                            break;
-
-                        case "GET_USER_INFO":
-                            // Formato: GET_USER_INFO;email
-                            if (parts.length == 2) {
-                                String email = parts[1];
+                        case GET_USER_INFO -> {
+                            if (data instanceof String email) {
                                 User u = queryPerformer.getUser(email);
-                                if (u != null) {
-                                    // Retorna representação simples. Ex: "USER_INFO;Nome;Email"
-                                    response = "USER_INFO;" + u.getName() + ";" + u.getEmail();
-                                } else {
-                                    response = "USER_NOT_FOUND";
-                                }
+                                responseMsg = new Message(Command.GET_USER_INFO, u);
+                            } else {
+                                responseMsg = new Message(Command.GET_USER_INFO, null);
                             }
-                            break;
+                        }
 
-                        case "CREATE_QUESTION":
-                            // Exemplo mais complexo.
-                            // Formato: CREATE_QUESTION;pergunta;opcaoCorrecta;op1,op2,op3...
-                            if (parts.length >= 4) {
-                                String text = parts[1];
-                                String correct = parts[2];
-                                // Assumindo que as opções vêm separadas por vírgula no 4º campo
-                                String[] options = parts[3].split(",");
-
-                                // Precisamos do ID do professor que criou (poderia vir no comando)
-                                // Aqui uso um ID dummy ou tens de passar o email do docente logado
-                                Question q = new Question(text, correct, options, null, null, "DOCENTE_ID");
-
-                                if (queryPerformer.saveQuestion(q)) {
-                                    response = "QUESTION_SAVED";
-                                } else {
-                                    response = "QUESTION_ERROR";
-                                }
+                        case CREATE_QUESTION -> {
+                            if (data instanceof Question q) {
+                                boolean ok = queryPerformer.saveQuestion(q);
+                                responseMsg = new Message(Command.CREATE_QUESTION, ok);
+                            } else {
+                                responseMsg = new Message(Command.CREATE_QUESTION, false);
                             }
-                            break;
+                        }
 
-                        case "LOGOUT":
-                            response = "BYE";
-                            break;
+                        case LOGOUT -> {
+                            responseMsg = new Message(Command.LOGOUT, "BYE");
+                        }
 
-                        default:
-                            response = "UNKNOWN_COMMAND";
+                        default -> responseMsg = new Message(cmd, "UNKNOWN_COMMAND");
                     }
                 } catch (Exception e) {
-                    response = "SERVER_ERROR: " + e.getMessage();
                     e.printStackTrace();
+                    responseMsg = new Message(cmd, "SERVER_ERROR: " + e.getMessage());
                 }
 
-                // Envia resposta ao cliente
-                out.println(response);
-
-                // Se for LOGOUT, podemos fechar o ciclo
-                if ("BYE".equals(response)) {
+                // Enviar resposta
+                try {
+                    out.writeObject(responseMsg);
+                    out.flush();
+                } catch (IOException e) {
+                    System.err.println("[Server] Erro ao enviar resposta ao cliente: " + e.getMessage());
                     break;
                 }
+
+                if (cmd == Command.LOGOUT) break;
             }
 
-        } catch (IOException e) {
+        } catch (EOFException e) {
+            System.out.println("[Server] Cliente fechou a ligação: " + client.getRemoteSocketAddress());
+        } catch (IOException | ClassNotFoundException e) {
             System.err.println("[Server] Erro na conexão com cliente: " + e.getMessage());
         } finally {
             // Fechar recursos
             try { if (in != null) in.close(); } catch (IOException ignored) {}
-            try { if (out != null) out.close(); } catch (Exception ignored) {}
+            try { if (out != null) out.close(); } catch (IOException ignored) {}
             try { client.close(); } catch (IOException ignored) {}
         }
     }
+
 
     private void processClientUpdate(String sqlCommand) {
         if (dbManager != null) {

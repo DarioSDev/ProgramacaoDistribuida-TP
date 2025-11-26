@@ -150,19 +150,24 @@ public class QueryPerformer {
     // --- GESTÃO DE PERGUNTAS ---
 
     public boolean saveQuestion(Question q) {
-        String sqlQuestion = "INSERT INTO pergunta (text, docente_email) VALUES (?, ?)";
+        // Atualizar SQL para incluir start_time e end_time
+        String sqlQuestion = "INSERT INTO pergunta (text, start_time, end_time, docente_email) VALUES (?, ?, ?, ?)";
         String sqlOption = "INSERT INTO opcao (text, is_correct, pergunta_id) VALUES (?, ?, ?)";
 
         dbManager.getWriteLock().lock();
         try (Connection conn = dbManager.getConnection()) {
-            conn.setAutoCommit(false); // Transação Atómica
+            conn.setAutoCommit(false);
 
             int questionId = -1;
 
-            // 1. Inserir Pergunta
             try (PreparedStatement pstmt = conn.prepareStatement(sqlQuestion, Statement.RETURN_GENERATED_KEYS)) {
                 pstmt.setString(1, q.getQuestion());
-                pstmt.setString(2, "TODO_DOCENTE_EMAIL"); // Precisas de passar quem criou a pergunta
+                // Converter LocalDateTime para String (ISO 8601)
+                pstmt.setString(2, q.getStartTime() != null ? q.getStartTime().toString() : null);
+                pstmt.setString(3, q.getEndTime() != null ? q.getEndTime().toString() : null);
+                // Usar o ID do professor que vem no objeto (se disponível) ou um placeholder se ainda não tiveres a sessão no objeto
+                pstmt.setString(4, q.getTeacherId() != null ? q.getTeacherId() : "unknown@isec.pt");
+
                 pstmt.executeUpdate();
 
                 ResultSet rs = pstmt.getGeneratedKeys();
@@ -171,7 +176,7 @@ public class QueryPerformer {
 
             if (questionId == -1) throw new SQLException("Falha ao gerar ID da pergunta.");
 
-            // 2. Inserir Opções
+            // Inserir opções (mantém-se igual)
             try (PreparedStatement pstmt = conn.prepareStatement(sqlOption)) {
                 for (String optText : q.getOptions()) {
                     pstmt.setString(1, optText);
@@ -194,4 +199,48 @@ public class QueryPerformer {
             dbManager.getWriteLock().unlock();
         }
     }
+
+    public boolean submitAnswer(String studentEmail, int questionId, int optionIndex) {
+
+        String sqlGetOptions = "SELECT id FROM opcao WHERE pergunta_id = ? ORDER BY id ASC";
+        String sqlInsertAnswer = "INSERT INTO resposta (estudante_email, pergunta_id, opcao_id) VALUES (?, ?, ?)";
+
+        dbManager.getWriteLock().lock();
+        try (Connection conn = dbManager.getConnection()) {
+
+            int realOptionId = -1;
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlGetOptions)) {
+                pstmt.setInt(1, questionId);
+                ResultSet rs = pstmt.executeQuery();
+
+                int currentIndex = 0;
+                while (rs.next()) {
+                    if (currentIndex == optionIndex) {
+                        realOptionId = rs.getInt("id");
+                        break;
+                    }
+                    currentIndex++;
+                }
+            }
+
+            if (realOptionId == -1) return false;
+
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlInsertAnswer)) {
+                pstmt.setString(1, studentEmail);
+                pstmt.setInt(2, questionId);
+                pstmt.setInt(3, realOptionId);
+                pstmt.executeUpdate();
+            }
+
+            dbManager.incrementDbVersion();
+            return true;
+
+        } catch (SQLException e) {
+            System.err.println("[DB] Erro submitAnswer: " + e.getMessage());
+            return false;
+        } finally {
+            dbManager.getWriteLock().unlock();
+        }
+    }
+
 }

@@ -88,28 +88,28 @@ public class ClientServiceMock implements ClientAPI {
         );
     }
 
-    @Override
-    public boolean createQuestion(
-            User user,
-            String text,
-            List<String> options,
-            int correctIndex,
-            LocalDate sd,
-            LocalTime st,
-            LocalDate ed,
-            LocalTime et
-    ) {
-        System.out.println("\n[MOCK] CREATE QUESTION");
-        System.out.println("Teacher: " + user.getEmail());
-        System.out.println("Question: " + text);
-        for (int i = 0; i < options.size(); i++) {
-            System.out.println(" " + (char) ('a' + i) + ") " + options.get(i));
-        }
-        System.out.println("Correct index: " + correctIndex);
-        System.out.println("Start: " + sd + " " + st);
-        System.out.println("End: " + ed + " " + et);
-        return true;
-    }
+//    @Override
+//    public boolean createQuestion(
+//            User user,
+//            String text,
+//            List<String> options,
+//            int correctIndex,
+//            LocalDate sd,
+//            LocalTime st,
+//            LocalDate ed,
+//            LocalTime et
+//    ) {
+//        System.out.println("\n[MOCK] CREATE QUESTION");
+//        System.out.println("Teacher: " + user.getEmail());
+//        System.out.println("Question: " + text);
+//        for (int i = 0; i < options.size(); i++) {
+//            System.out.println(" " + (char) ('a' + i) + ") " + options.get(i));
+//        }
+//        System.out.println("Correct index: " + correctIndex);
+//        System.out.println("Start: " + sd + " " + st);
+//        System.out.println("End: " + ed + " " + et);
+//        return true;
+//    }
 
     @Override
     public TeacherResultsData getQuestionResults(User user, String code) {

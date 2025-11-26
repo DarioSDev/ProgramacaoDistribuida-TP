@@ -1,5 +1,6 @@
 package pt.isec.pd.client;
 
+import jdk.jshell.spi.ExecutionControl;
 import pt.isec.pd.common.User;
 
 import java.io.IOException;
@@ -15,6 +16,10 @@ public interface ClientAPI {
 
     default boolean register(String role, String name, String id, String email, String password) throws IOException {
         throw new UnsupportedOperationException("register não implementado.");
+    }
+
+    default boolean createQuestion(String question, List<String> choices, String correctChoice) {
+        throw new UnsupportedOperationException("create Question not implemented");
     }
 
     default QuestionData getQuestionByCode(String code) {
@@ -42,15 +47,15 @@ public interface ClientAPI {
     }
 
     default boolean createQuestion(
-            User user,
+            User user, // Para saber quem criou
             String text,
             List<String> options,
-            int correctIndex,
+            String correctOption, // Alterado de int index para String texto para simplificar
             LocalDate sd,
             LocalTime st,
             LocalDate ed,
             LocalTime et
-    ) {
+    ) throws IOException {
         throw new UnsupportedOperationException("createQuestion não implementado.");
     }
 

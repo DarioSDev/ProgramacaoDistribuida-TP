@@ -14,6 +14,11 @@ public class Question implements Serializable {
     private String correctOption;
     private String[] options;
     private boolean hasAnswers;
+
+    public String getTeacherId() {
+        return teacherId;
+    }
+
     private LocalDateTime startTime;
     private LocalDateTime endTime;
     private String teacherId;
