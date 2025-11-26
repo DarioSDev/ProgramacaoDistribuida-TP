@@ -526,7 +526,7 @@ public class NewQuestionView extends BorderPane {
 
                 // Se este rádio estiver selecionado, calculamos a letra correspondente (a, b, c...)
                 if (row.radioButton.isSelected()) {
-                    correctOptionLetter = String.valueOf((char)('a' + currentIndex));
+                    correctOptionLetter = options.get(currentIndex);
                 }
                 currentIndex++;
             }

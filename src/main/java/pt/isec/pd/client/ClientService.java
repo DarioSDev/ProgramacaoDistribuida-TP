@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class ClientService implements ClientAPI {
-    private static final int MAX_SAME_SERVER_RETRY = 2;
+    private static final int MAX_SAME_SERVER_RETRY = 3;
     private static final long SAME_SERVER_RETRY_DELAY_MS = 20000;
     private static final int CONNECTION_TIMEOUT_MS = 5000;
 
