@@ -24,8 +24,8 @@ public class QueryPerformer {
         if (user instanceof Student) {
             sql = "INSERT INTO estudante (email, name, password, student_number) VALUES (?, ?, ?, ?)";
         } else if (user instanceof Teacher) {
-            if (validateTeacherCode(user.getTeacherCode())) {
-                sql = "INSERT INTO docente (email, name, password, id_uuid) VALUES (?, ?, ?, ?)";
+            if (validateTeacherCode(user.getExtra())) {
+                sql = "INSERT INTO docente (email, name, password, extra) VALUES (?, ?, ?, ?)";
             } else {
                 return false;
             }
@@ -126,7 +126,8 @@ public class QueryPerformer {
                     Teacher t = new Teacher(
                             rs.getString("name"),
                             rs.getString("email"),
-                            rs.getString("password")
+                            rs.getString("password"),
+                            rs.getString("extra")
                     );
                     // t.setTeacherId(rs.getString("id_uuid")); // Se implementares este setter
                     return t;

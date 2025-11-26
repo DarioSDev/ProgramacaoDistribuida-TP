@@ -114,8 +114,8 @@ public class RegisterView extends BorderPane {
         // 1. Recolher Dados
         RoleItem selectedRole = roleCombo.getValue();
         String name = nameField.getText();
-        String email = emailField.getText();
         String password = passwordField.getText();
+        String email = emailField.getText();
         String confirmPassword = confirmPasswordField.getText();
         String extraId = roleExtraField.getText();
 

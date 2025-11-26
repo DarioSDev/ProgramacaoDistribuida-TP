@@ -284,7 +284,7 @@ public class ClientService implements ClientAPI {
                 sb.append(";").append(name)
                 .append(";").append(email)
                 .append(";").append(password)
-                .append(";").append(id); // ID é o último campo
+                .append(";").append(id);
 
                 out.println(sb.toString());
 

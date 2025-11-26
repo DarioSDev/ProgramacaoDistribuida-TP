@@ -61,7 +61,7 @@ public class DatabaseManager {
                     "email TEXT PRIMARY KEY, " +
                     "name TEXT NOT NULL, " +
                     "password TEXT NOT NULL, " +
-                    "id_uuid TEXT)");
+                    "extra TEXT)");
 
             System.out.println("[DB][SCHEMA] Tabela criada/verificada: <docente>");
 
@@ -117,7 +117,8 @@ public class DatabaseManager {
                 String current = rs.getString("teacher_hash");
                 if (current == null || current.isEmpty()) {
 
-                    String teacherCode = "p4Ssw0!3d";
+//                    String teacherCode = "p4Ssw0!3d";
+                    String teacherCode = "...";
                     String hashed = hashCode(teacherCode);
 
                     PreparedStatement upd = conn.prepareStatement(
@@ -190,13 +191,20 @@ public class DatabaseManager {
     }
 
     public static String hashCode(String code) {
+        System.out.println("Antes do try: " + code);
         try {
             byte[] salt = "TEACHER_CODE_SALT".getBytes();
+            System.out.println("Debug 1");
             PBEKeySpec spec = new PBEKeySpec(code.toCharArray(), salt, 65536, 256);
+            System.out.println("Debug 2");
             SecretKeyFactory skf = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
+            System.out.println("Debug 3");
             byte[] hash = skf.generateSecret(spec).getEncoded();
+            System.out.println("Debug 4");
+            System.out.println("DEbug 5 " + Base64.getEncoder().encodeToString(hash));
             return Base64.getEncoder().encodeToString(hash);
         } catch (Exception e) {
+            e.printStackTrace();
             throw new RuntimeException("Erro ao gerar hash", e);
         }
     }

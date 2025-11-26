@@ -435,12 +435,13 @@ public class ServerService {
 
                         case "REGISTER_TEACHER":
                             // Formato: REGISTER_TEACHER;nome;email;pass
-                            if (parts.length == 4) {
+                            if (parts.length == 5) {
                                 String name = parts[1];
                                 String email = parts[2];
                                 String pass = parts[3];
+                                String teacherCode = parts[4];
 
-                                Teacher t = new Teacher(name, email, pass);
+                                Teacher t = new Teacher(name, email, pass, teacherCode);
                                 if (queryPerformer.registerUser(t)) {
                                     response = "REGISTER_SUCCESS";
                                 } else {
