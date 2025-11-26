@@ -2,11 +2,12 @@ package pt.isec.pd.common;
 
 public enum RoleType {
     TEACHER,
-    STUDENT;
+    STUDENT,
+    NONE;
 
     public static RoleType fromClass(Object o) {
         if ( o instanceof Teacher ) return TEACHER;
         if (o instanceof Student ) return STUDENT;
-        return null;
+        return NONE;
     }
 }

@@ -406,7 +406,7 @@ public class ServerService {
                                 String pass = parts[2];
                                 RoleType result = queryPerformer.authenticate(email, pass);
 
-                                if (result != null) {
+                                if (result != RoleType.NONE) {
                                     response = "OK;" + result;
                                 } else {
                                     response = "NOK" + result;

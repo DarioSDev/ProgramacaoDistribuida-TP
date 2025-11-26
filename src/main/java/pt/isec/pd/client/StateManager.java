@@ -84,6 +84,10 @@ public class StateManager {
     }
 
     public void showMenu(User user) {
+        UserManager.getInstance()
+                .setUser(user)
+                .setRole(user.getRole())
+                .setLoggedIn(true);
         if ("teacher".equalsIgnoreCase(user.getRole()))
             showTeacherMenu(user);
         else if ("student".equalsIgnoreCase(user.getRole()))
