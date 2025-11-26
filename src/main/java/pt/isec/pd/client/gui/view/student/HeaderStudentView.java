@@ -12,7 +12,9 @@ import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.shape.SVGPath;
+import javafx.stage.Stage;
 import pt.isec.pd.client.StateManager;
+import pt.isec.pd.client.gui.view.AboutQuestia;
 import pt.isec.pd.client.UserManager;
 import pt.isec.pd.common.User;
 
@@ -46,6 +48,10 @@ public class HeaderStudentView extends BorderPane {
                     + "9.4698C-0.0725 9.7598 -0.0725 10.2398 0.2175 10.5298L3.5675 13.8798C3.8575 14.1698 4.3375 "
                     + "14.1698 4.6275 13.8798C4.9175 13.5898 4.9175 13.1098 4.6275 12.8198L2.5575 10.7498H6.9975V9.2498H2.5575Z";
 
+    private static final String SVG_INFO =
+            "M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22"
+                    + "C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM13 17H11V11H13V17Z"
+                    + "M13 9H11V7H13V9Z";
 
     public HeaderStudentView(StateManager stateManager, User user) {
         this.stateManager = stateManager;
@@ -170,6 +176,12 @@ public class HeaderStudentView extends BorderPane {
             stateManager.showEditProfile(user);
         });
 
+        Button about = createDropdownButton("About", SVG_INFO, false, false);
+        about.setOnAction(e -> {
+            toggleDropdown();
+            AboutQuestia.show((Stage) getScene().getWindow());
+        });
+
 
         Button logout = createDropdownButton("Logout", SVG_LOGOUT, false, true);
         logout.setOnAction(e -> {
@@ -178,7 +190,8 @@ public class HeaderStudentView extends BorderPane {
             stateManager.showLogin();
         });
 
-        dropdownMenu.getChildren().setAll(home, history, profile, logout);
+        dropdownMenu.getChildren().setAll(home, history, profile, about, logout);
+
     }
 
     private Button createDropdownButton(String text, String svgContent, boolean isTop, boolean isBottom) {

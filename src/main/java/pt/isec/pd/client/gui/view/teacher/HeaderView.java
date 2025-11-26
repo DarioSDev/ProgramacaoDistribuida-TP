@@ -11,7 +11,9 @@ import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.shape.SVGPath;
+import javafx.stage.Stage;
 import pt.isec.pd.client.StateManager;
+import pt.isec.pd.client.gui.view.AboutQuestia;
 import pt.isec.pd.client.UserManager;
 import pt.isec.pd.common.User;
 
@@ -56,6 +58,11 @@ public class HeaderView extends BorderPane {
             "M14.7961 0H12.1961C8.99609 0 6.99609 2 6.99609 5.2V9.25H13.2461C13.6561 9.25 13.9961 9.59 13.9961 10C13.9961 10.41 13.6561 10.75 13.2461 10.75H6.99609V14.8C6.99609 18 8.99609 20 12.1961 20H14.7861C17.9861 20 19.9861 18 19.9861 14.8V5.2C19.9961 2 17.9961 0 14.7961 0Z " +
                     "M2.5575 9.2498L4.6275 7.17984C4.7775 7.02984 4.8475 6.83984 4.8475 6.64984C4.8475 6.45984 4.7775 6.25984 4.6275 6.11984C4.3375 5.82984 3.8575 5.82984 3.5675 6.11984L0.2175 9.4698C-0.0725 9.7598 -0.0725 10.2398 0.2175 10.5298L3.5675 13.8798C3.8575 14.1698 4.3375 14.1698 4.6275 13.8798C4.9175 13.5898 4.9175 13.1098 4.6275 12.8198L2.5575 10.7498H6.9975V9.2498H2.5575Z";
 
+
+    private static final String SVG_INFO =
+            "M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22"
+                    + "C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM13 17H11V11H13V17Z"
+                    + "M13 9H11V7H13V9Z";
 
     public HeaderView(StateManager stateManager, User user) {
         this.stateManager = stateManager;
@@ -148,13 +155,19 @@ public class HeaderView extends BorderPane {
         Button profile = createDropdownButton("Profile", SVG_PROFILE, false, false);
         profile.setOnAction(e -> { toggleDropdown(); stateManager.showEditProfile(user); });
 
+        Button about = createDropdownButton("About", SVG_INFO, false, false);
+        about.setOnAction(e -> {
+            toggleDropdown();
+            AboutQuestia.show((Stage) getScene().getWindow());
+        });
+
         Button logout = createDropdownButton("Logout", SVG_LOGOUT, false, true);
         logout.setOnAction(e -> {
             toggleDropdown();
             UserManager.getInstance().logOut();
             stateManager.showLogin(); });
 
-        dropdownMenu.getChildren().setAll(home, history, newQ, profile, logout);
+        dropdownMenu.getChildren().setAll(home, history, newQ, profile, about, logout);
     }
 
 
