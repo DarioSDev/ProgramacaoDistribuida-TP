@@ -259,4 +259,16 @@ public class ClientService implements ClientAPI {
     public TeacherResultsData getQuestionResults(User user, String questionCode) {
         throw new UnsupportedOperationException("getQuestionResults ainda não implementado no ClientServiceReal.");
     }
+    @Override
+    public synchronized boolean deleteQuestion(String questionId) throws IOException {
+        if (out == null)
+            throw new IOException("Ligação TCP não está ativa.");
+
+        String response = in.readLine();
+
+        if (response == null) {
+            throw new IOException("O servidor fechou a ligação.");
+        }
+        return response.startsWith("OK");
+    }
 }

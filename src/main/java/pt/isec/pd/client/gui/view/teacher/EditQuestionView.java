@@ -3,15 +3,19 @@ package pt.isec.pd.client.gui.view.teacher;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Cursor;
+import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.SVGPath;
+import javafx.stage.Stage;
+import javafx.stage.StageStyle;
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
 import pt.isec.pd.common.Question;
 import pt.isec.pd.common.User;
 
+import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -53,6 +57,7 @@ public class EditQuestionView extends BorderPane {
     private final Button addOptionButton = new Button("Add Option");
     private final Button saveButton = new Button("Save & Submit");
     private final Button backButton = new Button("Back");
+    private final Button deleteButton = new Button("Delete Question");
 
     private StackPane overlay;
     private VBox submitPopup;
@@ -98,10 +103,17 @@ public class EditQuestionView extends BorderPane {
                 -fx-font-size: 20px;
                 -fx-font-weight: bold;
                 """);
-        HBox questionLabelBox = new HBox(questionLabel);
-        questionLabelBox.setAlignment(Pos.CENTER_LEFT);
-        questionLabelBox.setPadding(new Insets(0, 0, 0, -20));
-        questionLabelBox.setMaxWidth(760);
+
+        styleDeleteButton(deleteButton);
+        deleteButton.setOnAction(e -> handleDelete());
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        HBox titleBar = new HBox(10, questionLabel, spacer, deleteButton);
+        titleBar.setAlignment(Pos.CENTER_LEFT);
+
+        titleBar.setMaxWidth(800);
 
         questionArea.setPromptText("Question...");
         questionArea.setWrapText(true);
@@ -128,6 +140,10 @@ public class EditQuestionView extends BorderPane {
         HBox questionAreaContainer = new HBox(questionArea);
         questionAreaContainer.setAlignment(Pos.CENTER);
         HBox.setHgrow(questionArea, Priority.ALWAYS);
+
+        questionAreaContainer.setMaxWidth(800);
+        VBox.setMargin(questionAreaContainer, new Insets(0, 0, 0, 0));
+
 
         optionsColumn.setAlignment(Pos.TOP_LEFT);
         radiosColumn.setAlignment(Pos.TOP_CENTER);
@@ -185,13 +201,12 @@ public class EditQuestionView extends BorderPane {
                 stateManager.showQuestionHistory(user);
         });
 
-        VBox buttonsBox = new VBox(40, saveButton, backButton);
+        VBox buttonsBox = new VBox(20, saveButton, backButton);
         buttonsBox.setAlignment(Pos.CENTER);
-        buttonsBox.setSpacing(20);
         VBox.setMargin(buttonsBox, new Insets(50, 0, 0, 0));
 
         root.getChildren().addAll(
-                questionLabelBox,
+                titleBar,
                 questionAreaContainer,
                 middleArea,
                 buttonsBox
@@ -199,6 +214,7 @@ public class EditQuestionView extends BorderPane {
 
         return root;
     }
+
 
     private void styleButton(Button btn, SVGPath icon) {
         btn.setCursor(Cursor.HAND);
@@ -680,4 +696,183 @@ public class EditQuestionView extends BorderPane {
             this.optionLine = optionLine;
         }
     }
+
+    private void styleDeleteButton(Button btn) {
+        btn.setCursor(Cursor.HAND);
+        btn.setPrefWidth(180);
+        btn.setPrefHeight(40);
+        btn.setStyle("""
+            -fx-background-color: #A00000;
+            -fx-text-fill: white;
+            -fx-font-size: 12px;
+            -fx-font-weight: bold;
+            -fx-background-radius: 12;
+            -fx-alignment: CENTER;
+        """);
+    }
+
+    private void handleDelete() {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.initStyle(StageStyle.TRANSPARENT);
+
+        DialogPane dialogPane = dialog.getDialogPane();
+        dialogPane.getScene().setFill(Color.TRANSPARENT);
+
+        dialogPane.setStyle("""
+        -fx-background-color: transparent;
+        -fx-padding: 0;
+    """);
+
+        Stage stage = (Stage) dialogPane.getScene().getWindow();
+        stage.initStyle(StageStyle.TRANSPARENT);
+
+        VBox mainBox = new VBox(15);
+        mainBox.setAlignment(Pos.CENTER);
+        mainBox.setPadding(new Insets(20, 20, 20, 20));
+        mainBox.setStyle("""
+        -fx-background-color: #D9D9D9;
+        -fx-background-radius: 16;
+        -fx-border-color: red;
+        -fx-border-width: 4;
+        -fx-border-radius: 16;
+    """);
+
+        SVGPath customIcon = new SVGPath();
+        customIcon.setContent(
+                "M32.3039 32.5965L19.1207 6.21369C18.0213 4.92877 16.2374 4.92877 15.138 6.21369L1.9537 32.5965C0.8543 33.8802 0.8543 35.9638 1.9537 37.25H32.3039C33.4044 35.9638 33.4044 33.8802 32.3039 32.5965ZM15.9152 15.6845C15.9152 14.6642 16.6228 13.8383 17.4948 13.8383C18.3667 13.8383 19.0744 14.6642 19.0744 15.6845V24.2998C19.0744 25.3189 18.3667 26.146 17.4948 26.146C16.6228 26.146 15.9152 25.3189 15.9152 24.2998V15.6845ZM17.5042 32.3097C16.6323 32.3097 15.9246 31.4851 15.9246 30.4635C15.9246 29.4445 16.6323 28.6174 17.5042 28.6174C18.3762 28.6174 19.0838 30.4635 17.5042 32.3097Z");
+        customIcon.setFill(Color.RED);
+        customIcon.setScaleX(1.4);
+        customIcon.setScaleY(1.4);
+
+        Label titleLabel = new Label("Warning!");
+        titleLabel.setStyle("""
+            -fx-font-size: 18px;
+            -fx-font-weight: bold;
+            -fx-text-fill: black;
+            """);
+
+        Label contentLabel = new Label(
+                "Are you sure you want to permanently delete this question? This action cannot be undone."
+        );
+        contentLabel.setStyle("-fx-text-fill: black; -fx-font-size: 13px;");
+        contentLabel.setWrapText(true);
+
+        VBox contentBox = new VBox(12, customIcon, titleLabel, contentLabel);
+        contentBox.setAlignment(Pos.CENTER);
+
+        Button okButton = new Button("OK");
+        okButton.setCursor(Cursor.HAND);
+        okButton.setStyle("""
+        -fx-background-color: #FF7A00;
+        -fx-text-fill: black;
+        -fx-font-size: 14px;
+        -fx-font-weight: bold;
+        -fx-background-radius: 8;
+        -fx-padding: 8 28;
+    """);
+
+        Button cancelButton = new Button("Cancel");
+        cancelButton.setCursor(Cursor.HAND);
+        cancelButton.setStyle("""
+        -fx-background-color: white;
+        -fx-text-fill: black;
+        -fx-font-size: 14px;
+        -fx-font-weight: bold;
+        -fx-background-radius: 8;
+        -fx-padding: 8 28;
+    """);
+
+        HBox buttonsBox = new HBox(15, okButton, cancelButton);
+        buttonsBox.setAlignment(Pos.CENTER);
+        buttonsBox.setPadding(new Insets(10, 0, 5, 0));
+
+        mainBox.getChildren().addAll(contentBox, buttonsBox);
+
+        dialogPane.setContent(mainBox);
+
+        mainBox.setOpacity(0);
+        javafx.animation.FadeTransition ft = new javafx.animation.FadeTransition(javafx.util.Duration.millis(180), mainBox);
+        ft.setFromValue(0);
+        ft.setToValue(1);
+        ft.play();
+
+        okButton.setOnAction(ev -> {
+            Stage dlgStage = (Stage) dialogPane.getScene().getWindow();
+            dlgStage.close();
+
+            try {
+                boolean success = client.deleteQuestion(question.getId());
+
+                if (success) {
+                    showDeleteSuccessPopup();
+                } else {
+                    showAlert("Error", "Could not delete question.");
+                }
+
+            } catch (IOException e) {
+                showAlert("Connection Error", "Failed to communicate with server.");
+            }
+        });
+
+        cancelButton.setOnAction(ev -> {
+            Stage dlgStage = (Stage) dialogPane.getScene().getWindow();
+            dlgStage.close();
+        });
+
+        dialog.showAndWait();
+    }
+
+    private void showDeleteSuccessPopup() {
+        overlay.setVisible(true);
+
+        overlay.getChildren().clear();
+
+        VBox box = new VBox(12);
+        box.setAlignment(Pos.CENTER);
+        box.setPadding(new Insets(25));
+        box.setMinWidth(360);
+        box.setPrefWidth(360);
+        box.setMaxWidth(360);
+        box.setMinHeight(200);
+        box.setPrefHeight(200);
+        box.setMaxHeight(200);
+
+        box.setStyle("""
+            -fx-background-color: #D9D9D9;
+            -fx-background-radius: 14;
+            -fx-border-color: #A00000;
+            -fx-border-width: 3;
+            -fx-border-radius: 14;
+            """);
+
+        SVGPath trashCan = new SVGPath();
+        trashCan.setContent("M6 19C6 20.1 6.9 21 8 21H16C17.1 21 18 20.1 18 19V7H6V19ZM19 4H15.5L14.5 3H9.5L8.5 4H5V6H19V4Z");
+        trashCan.setFill(Color.BLACK);
+        trashCan.setScaleX(1.2);
+        trashCan.setScaleY(1.2);
+
+        Label title = new Label("Question Deleted!");
+        title.setStyle("""
+            -fx-font-size: 16px;
+            -fx-text-fill: red;
+            -fx-font-weight: bold;
+            """);
+
+        Label msg = new Label("The question was successfully deleted.");
+        msg.setStyle("-fx-text-fill: black; -fx-font-size: 14px;");
+
+        box.getChildren().addAll(trashCan, title, msg);
+
+        overlay.getChildren().add(box);
+        StackPane.setAlignment(box, Pos.CENTER);
+
+        overlay.setOnMouseClicked(e -> {
+            if (e.getTarget() == overlay) {
+                overlay.setVisible(false);
+                if (stateManager != null)
+                    stateManager.showQuestionHistory(user);
+            }
+        });
+    }
+
 }

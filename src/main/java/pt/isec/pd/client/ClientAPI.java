@@ -59,5 +59,7 @@ public interface ClientAPI {
 
     record TeacherQuestionItem(String title, LocalDate date, String status) {}
 
+    boolean deleteQuestion(String questionId) throws java.io.IOException;
+
 }
 
