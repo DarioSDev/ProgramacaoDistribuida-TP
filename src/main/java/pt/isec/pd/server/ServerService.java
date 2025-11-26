@@ -1,9 +1,6 @@
 package pt.isec.pd.server;
 
-import pt.isec.pd.common.Question;
-import pt.isec.pd.common.Student;
-import pt.isec.pd.common.Teacher;
-import pt.isec.pd.common.User;
+import pt.isec.pd.common.*;
 import pt.isec.pd.db.DatabaseManager;
 import pt.isec.pd.db.QueryPerformer;
 
@@ -407,11 +404,12 @@ public class ServerService {
                             if (parts.length == 3) {
                                 String email = parts[1];
                                 String pass = parts[2];
+                                RoleType result = queryPerformer.authenticate(email, pass);
 
-                                if (queryPerformer.authenticate(email, pass)) {
-                                    response = "OK";
+                                if (result != null) {
+                                    response = "OK;" + result;
                                 } else {
-                                    response = "NOK";
+                                    response = "NOK" + result;
                                 }
                             }
                             break;

@@ -1,9 +1,6 @@
 package pt.isec.pd.db;
 
-import pt.isec.pd.common.Question;
-import pt.isec.pd.common.Student;
-import pt.isec.pd.common.Teacher;
-import pt.isec.pd.common.User;
+import pt.isec.pd.common.*;
 
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
@@ -142,9 +139,12 @@ public class QueryPerformer {
         return null; // Não encontrado
     }
 
-    public boolean authenticate(String email, String password) {
+    public RoleType authenticate(String email, String password) {
         User u = getUser(email);
-        return u != null && u.getPassword().equals(password);
+        if (u != null && u.getPassword().equals(password)) {
+            return RoleType.fromClass(u);
+        }
+        return null;
     }
 
     // --- GESTÃO DE PERGUNTAS ---
