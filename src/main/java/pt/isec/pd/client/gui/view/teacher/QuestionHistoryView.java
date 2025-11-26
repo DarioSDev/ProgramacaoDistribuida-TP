@@ -89,6 +89,7 @@ public class QuestionHistoryView extends BorderPane {
 
         loadMockData();
         applyFilters();
+        updateFilterVisuals();
     }
 
     private BorderPane createCenterContent() {
@@ -360,10 +361,24 @@ public class QuestionHistoryView extends BorderPane {
         VBox startDateBox = createDateFilterDropdown(startDateField, "Start Date");
         VBox endDateBox = createDateFilterDropdown(endDateField, "End Date");
 
-        startDateField.textProperty().addListener((o, a, n) -> applyFilters());
-        endDateField.textProperty().addListener((o, a, n) -> applyFilters());
-
         VBox dateBox = new VBox(12, startDateBox, endDateBox);
+
+        Button applyBtn = new Button("Apply Filters");
+        applyBtn.setCursor(Cursor.HAND);
+        applyBtn.setPrefWidth(200);
+        applyBtn.setPrefHeight(35);
+        applyBtn.setStyle("""
+        -fx-background-color: #FF7A00;
+        -fx-text-fill: black;
+        -fx-font-size: 14px;
+        -fx-font-weight: bold;
+        -fx-background-radius: 10;
+    """);
+
+        applyBtn.setOnAction(e -> applyFilters());
+
+        VBox applyBox = new VBox(applyBtn);
+        applyBox.setPadding(new Insets(5, 0, 0, 0));
 
         HBox rowActive = createFilterRow(Status.ACTIVE, dotActive, lblActive);
         HBox rowFuture = createFilterRow(Status.FUTURE, dotFuture, lblFuture);
@@ -372,11 +387,10 @@ public class QuestionHistoryView extends BorderPane {
         VBox radiosBox = new VBox(8, rowActive, rowFuture, rowExpired);
         radiosBox.setAlignment(Pos.TOP_LEFT);
 
-        updateFilterVisuals();
-
-        panel.getChildren().addAll(filtersTitle, dateBox, radiosBox);
+        panel.getChildren().addAll(filtersTitle, dateBox, radiosBox, applyBox);
         return panel;
     }
+
 
     private HBox createFilterRow(Status status, Circle dot, Label label) {
         HBox row = new HBox(10, dot, label);
