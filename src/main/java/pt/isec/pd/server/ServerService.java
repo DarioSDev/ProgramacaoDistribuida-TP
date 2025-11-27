@@ -77,7 +77,8 @@ public class ServerService {
                     tcpClientPort,
                     tcpDbPort,
                     dbManager,
-                    HEARTBEAT_INTERVAL_MS);
+                    HEARTBEAT_INTERVAL_MS,
+                    primaryIp);
             heartbeatManager.start();
             this.dbManager.setHeartbeatManager(this.heartbeatManager);
 
