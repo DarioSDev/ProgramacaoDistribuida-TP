@@ -6,7 +6,6 @@ import pt.isec.pd.db.QueryPerformer;
 
 import java.io.*;
 import java.net.*;
-import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -30,6 +29,7 @@ public class ServerService {
 
     private int primaryTcpClientPort = -1;
     private int primaryDbPort = -1;
+
     private InetAddress primaryIp = null;
 
     private volatile boolean isPrimary = false;
@@ -41,7 +41,7 @@ public class ServerService {
     private MulticastSocket multicastReceiverSocket;
     private MulticastSocket multicastSenderSocket;
 
-    private HeartbeatSender heartbeatSender;
+    private HeartbeatManager heartbeatManager;
     private ExecutorService clientPool;
     private Thread directoryHeartbeatThread;
 
@@ -71,8 +71,15 @@ public class ServerService {
 
             initializeDatabaseLogic();
 
-            heartbeatSender = new HeartbeatSender(udpSocket, directoryHost, directoryPort, tcpClientPort, HEARTBEAT_INTERVAL_MS);
-            heartbeatSender.start();
+            heartbeatManager = new HeartbeatManager(udpSocket,
+                    directoryHost,
+                    directoryPort,
+                    tcpClientPort,
+                    tcpDbPort,
+                    dbManager,
+                    HEARTBEAT_INTERVAL_MS);
+            heartbeatManager.start();
+            this.dbManager.setHeartbeatManager(this.heartbeatManager);
 
             directoryHeartbeatThread = startDirectoryHeartbeatListener();
             startClientListener();
@@ -482,13 +489,6 @@ public class ServerService {
         }
     }
 
-
-    private void processClientUpdate(String sqlCommand) {
-        if (dbManager != null) {
-            dbManager.executeUpdate(sqlCommand);
-        }
-    }
-
     private void startDbSyncListener() {
         new Thread(() -> {
             while (running) {
@@ -571,8 +571,8 @@ public class ServerService {
 
         sendUnregister();
 
-        if (heartbeatSender != null && heartbeatSender.isAlive()) {
-            heartbeatSender.shutdown();
+        if (heartbeatManager != null && heartbeatManager.isAlive()) {
+            heartbeatManager.shutdown();
         }
 
         if (clientPool != null) {

@@ -45,7 +45,7 @@ public class QueryPerformer {
             }
 
             pstmt.executeUpdate();
-            dbManager.incrementDbVersion(); // ⚠️ Importante: Atualiza versão após escrita
+            dbManager.incrementDbVersion(pstmt.toString());
 
             System.out.println("[DB] Utilizador registado: " + user.getEmail());
             return true;
@@ -185,10 +185,11 @@ public class QueryPerformer {
                     pstmt.addBatch();
                 }
                 pstmt.executeBatch();
+                conn.commit();
+                dbManager.incrementDbVersion(pstmt.toString());
+                dbManager.incrementDbVersion(pstmt.toString());
             }
 
-            conn.commit();
-            dbManager.incrementDbVersion();
             System.out.println("[DB] Pergunta gravada. ID: " + questionId);
             return true;
 
@@ -230,9 +231,9 @@ public class QueryPerformer {
                 pstmt.setInt(2, questionId);
                 pstmt.setInt(3, realOptionId);
                 pstmt.executeUpdate();
+                dbManager.incrementDbVersion(pstmt.toString());
             }
 
-            dbManager.incrementDbVersion();
             return true;
 
         } catch (SQLException e) {

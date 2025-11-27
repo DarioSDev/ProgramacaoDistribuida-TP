@@ -1,5 +1,7 @@
 package pt.isec.pd.db;
 
+import pt.isec.pd.server.HeartbeatManager;
+
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 import java.io.File;
@@ -14,12 +16,17 @@ public class DatabaseManager {
     private final Lock readLock;
     private final Lock writeLock;
     private volatile boolean schemaReady = false;
+    private HeartbeatManager heartbeatManager;
 
     public DatabaseManager(String dbDirectory, String dbName) {
         this.dbPath = new File(dbDirectory, dbName).getAbsolutePath();
         this.dbLock = new ReentrantReadWriteLock();
         this.readLock = dbLock.readLock();
         this.writeLock = dbLock.writeLock();
+    }
+
+    public void setHeartbeatManager(HeartbeatManager heartbeatManager) {
+        this.heartbeatManager = heartbeatManager;
     }
 
     public void setDbFile(File dbFile) {
@@ -162,7 +169,8 @@ public class DatabaseManager {
         }
     }
 
-    public void incrementDbVersion() {
+    public void incrementDbVersion(String query) {
+        heartbeatManager.sendHeartbeat(query);
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement()) {
 
@@ -180,7 +188,7 @@ public class DatabaseManager {
              Statement stmt = conn.createStatement()) {
 
             stmt.executeUpdate(sql);
-            incrementDbVersion();
+            incrementDbVersion(sql);
             return true;
 
         } catch (SQLException e) {
