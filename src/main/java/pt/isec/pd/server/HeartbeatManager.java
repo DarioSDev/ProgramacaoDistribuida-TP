@@ -6,24 +6,31 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 public class HeartbeatManager extends Thread {
-    private final DatagramSocket socket;
-    private final String directoryHost;
-    private final int directoryPort;
-    private final int selfClientTcpPort;
-    private final int selfDBTcpPort;
-    private final DatabaseManager dbManager;
-    private final int heartbeatInterval;
 
-    // ✅ NOVO: guarda o IP real deste servidor
-    private final InetAddress selfIp;
-    private final InetAddress primaryIp;
+    private final DatagramSocket socket;       // para HEARTBEAT da diretoria
+    private final String directoryHost;        // host da diretoria
+    private final int directoryPort;           // porto UDP da diretoria
+    private final int selfClientTcpPort;       // proprio porto TCP para clientes
+    private final int selfDBTcpPort;           // proprio porto TCP para BD sync
+    private final DatabaseManager dbManager;   // acesso à BD
+    private final int heartbeatInterval;       // intervalo do sender
+
+    private final int primaryClientTcpPort;    // porto TCP primary (recebido da diretoria)
+    private final int primaryDBTcpPort;        // porto DB primary (recebido da diretoria)
+    private final InetAddress primaryAddress;  // IP primary (mas não usado na comparação)
+    private final ServerService serverService;
 
     private volatile boolean running = true;
+
     private MulticastSocket multicastSocket;
 
     public HeartbeatManager(DatagramSocket socket, String directoryHost, int directoryPort,
                             int selfClientTcpPort, int selfDBTcpPort,
-                            DatabaseManager dbManager, int heartbeatInterval, InetAddress primaryIp) throws UnknownHostException {
+                            DatabaseManager dbManager, int heartbeatInterval,
+                            InetAddress primaryAddress,
+                            int primaryClientTcpPort,
+                            int primaryDBTcpPort,
+                            ServerService serverService) {
         this.socket = socket;
         this.directoryHost = directoryHost;
         this.directoryPort = directoryPort;
@@ -31,23 +38,21 @@ public class HeartbeatManager extends Thread {
         this.selfDBTcpPort = selfDBTcpPort;
         this.dbManager = dbManager;
         this.heartbeatInterval = heartbeatInterval;
-        this.primaryIp = primaryIp;
-
-        // ✅ guarda o IP desta máquina
-        this.selfIp = InetAddress.getLocalHost();
-
+        this.primaryAddress = primaryAddress;
+        this.primaryClientTcpPort = primaryClientTcpPort;
+        this.primaryDBTcpPort = primaryDBTcpPort;
+        this.serverService = serverService;
         setDaemon(true);
         setName("Heartbeat-Sender-Dir");
     }
 
-    // === ARRANQUE AUTOMÁTICO DAS 2 THREADS ===
     @Override
     public void start() {
-        super.start(); // thread do sender (run())
-        new Thread(() -> listenMulticastHeartbeats(), "Heartbeat-Receiver-Multi").start();
+        super.start();                                                                                // inicia sender
+        new Thread(this::listenAllHeartbeats, "Heartbeat-Receiver-Multi").start();              // inicia receiver
     }
 
-    // === THREAD PRINCIPAL: SENDER (não apagado, não mexido na assinatura) ===
+    // === THREAD SENDER ===
     @Override
     public void run() {
         try {
@@ -65,92 +70,123 @@ public class HeartbeatManager extends Thread {
         }
     }
 
-    // === SENDER SEM QUERY ===
+    // SENDER sem query
     public void sendHeartbeat() {
         try {
-            InetAddress dirAddr = InetAddress.getByName(directoryHost);
-            String msg = String.format("HEARTBEAT %d %d %d",
+            InetAddress mcAddr = InetAddress.getByName("230.30.30.30");
+            String msgMC = String.format("HEARTBEAT %d %d %d",
                     selfClientTcpPort, selfDBTcpPort, dbManager.getDbVersion());
-            byte[] data = msg.getBytes(StandardCharsets.UTF_8);
-            DatagramPacket packet = new DatagramPacket(data, data.length, dirAddr, directoryPort);
-            socket.send(packet);
+            byte[] bufMC = msgMC.getBytes(StandardCharsets.UTF_8);
+            socket.send(new DatagramPacket(bufMC, bufMC.length, mcAddr, 3030));
 
-            System.out.println("hb enviado (dir) -> " + msg);
+            sendHeartbeatToDirectory(msgMC);
+
+            System.out.println("\nhb enviado -> " + msgMC);
 
         } catch (IOException e) {
-            System.out.println("hb enviado (dir) -> ERRO ao enviar heartbeat: " + e.getMessage());
+            System.out.println("\nhb enviado -> ERRO ao enviar: " + e.getMessage());
         }
     }
 
-    // === SENDER COM QUERY SQL ===
+    // SENDER com query SQL incluída
     public void sendHeartbeat(String query) {
         try {
-            InetAddress dirAddr = InetAddress.getByName(directoryHost);
-            String msg = String.format("HEARTBEAT %d %d %d %s",
-                    selfClientTcpPort, selfDBTcpPort, dbManager.getDbVersion(), query);
-            byte[] data = msg.getBytes(StandardCharsets.UTF_8);
-            DatagramPacket packet = new DatagramPacket(data, data.length, dirAddr, directoryPort);
-            socket.send(packet);
+            InetAddress mcAddr = InetAddress.getByName("230.30.30.30");
+            int newVersion = dbManager.getDbVersion();
+            String msgMC = String.format("HEARTBEAT %d %d %d %s",
+                    selfClientTcpPort, selfDBTcpPort, newVersion, query);
+            byte[] bufMC = msgMC.getBytes(StandardCharsets.UTF_8);
+            socket.send(new DatagramPacket(bufMC, bufMC.length, mcAddr, 3030));
 
-            System.out.println("hb enviado (dir) -> " + msg);
+            sendHeartbeatToDirectory(msgMC);
+
+            System.out.println("\nhb enviado -> " + msgMC);
 
         } catch (IOException e) {
-            System.out.println("hb enviado (dir) -> ERRO ao enviar heartbeat com query: " + e.getMessage());
+            System.out.println("\nhb enviado -> ERRO ao enviar c/ query: " + e.getMessage());
         }
     }
 
-    // === RECEIVER MULTICAST: OUVE TODOS ===
-    private void listenMulticastHeartbeats() {
+    // Envia ao Directory
+    private void sendHeartbeatToDirectory(String msg) {
         try {
-            String multiIp = "230.30.30.30";
-            int multiPort = 3030;
+            InetAddress dirAddr = InetAddress.getByName(directoryHost);
+            byte[] data = msg.getBytes(StandardCharsets.UTF_8);
+            socket.send(new DatagramPacket(data, data.length, dirAddr, directoryPort));
+            System.out.println("hb enviado (dir) -> " + msg);
+        } catch (IOException ignored) {}
+    }
 
-            MulticastSocket ms = new MulticastSocket(multiPort);
+    // === THREAD RECEIVER: OUVE TODOS E CLASSIFICA POR PORTOS (debug) ===
+    private void listenAllHeartbeats() {
+        try {
+            MulticastSocket ms = new MulticastSocket(3030);
             ms.setReuseAddress(true);
-            InetAddress group = InetAddress.getByName(multiIp);
+            InetAddress group = InetAddress.getByName("230.30.30.30");
             ms.joinGroup(group);
+            this.multicastSocket = ms;
 
-            multicastSocket = ms;
+            System.out.println("[HB MULTI] A ouvir heartbeats multicast em 230.30.30.30:3030\n");
 
-            System.out.println("[HB MULTI] A ouvir heartbeats multicast em " + multiIp + ":" + multiPort);
-
-            byte[] buf = new byte[512];
+            byte[] buffer = new byte[512];
 
             while (running) {
-                DatagramPacket p = new DatagramPacket(buf, buf.length);
+                DatagramPacket p = new DatagramPacket(buffer, buffer.length);
                 ms.receive(p);
-                String m = new String(p.getData(), 0, p.getLength(), StandardCharsets.UTF_8).trim();
+                String msg = new String(p.getData(), 0, p.getLength(), StandardCharsets.UTF_8).trim();
 
-                InetAddress origem = p.getAddress();
+                // Parse básico do heartbeat: HEARTBEAT <clientPort> <dbPort> <version> [query opcional]
+                String[] parts = msg.split("\\s+", 5);
 
-                // ✅ classifica a origem e imprime debug exato
-                if (origem.equals(selfIp)) {
-                    System.out.println("hb recebido - é meu " + m);
-                } else if (origem.equals(primaryIp)) {
-                    System.out.println("hb recebido - é primary " + m);
-                } else {
-                    System.out.println("hb recebido - é secondary " + m);
+                // Verifica se tem pelo menos: HEARTBEAT <portC> <portDB> <version>
+                if (parts.length < 4 || !parts[0].equals("HEARTBEAT")) {
+                    System.out.println("hb recebido -> mal formatado ou não é HEARTBEAT: " + msg);
+                    System.out.println("-----------------------------");
+                    continue;
+                }
+
+                // Captura as portas do servidor que enviou o HB
+                int senderClientPort = Integer.parseInt(parts[1]);
+                int senderDbPort = Integer.parseInt(parts[2]);
+
+                // A query opcional pode estar ou não presente
+                String sqlQuery = parts.length == 5 ? parts[4] : "Nenhuma query incluída";
+
+                System.out.println("\n[HB Multi Recebido] De: " + p.getAddress().getHostAddress() + ":" + p.getPort());
+                System.out.println("Conteúdo: " + msg);
+
+                // 1. É o próprio servidor?
+                if (senderClientPort == selfClientTcpPort && senderDbPort == selfDBTcpPort) {
+                    System.out.println("→ CLASSIFICAÇÃO: É o **MEU** próprio heartbeat. (Deve ser ignorado)");
+                }
+                // 2. É o Primary atual (conforme registado no Directory)?
+                else if (senderClientPort == primaryClientTcpPort) { // Basta verificar a porta do cliente, que é única
+                    System.out.println("→ CLASSIFICAÇÃO: É do servidor **PRINCIPAL** (Primary).");
+                    System.out.println("  → Query SQL incluída: " + (parts.length == 5 ? "SIM" : "NÃO"));
+                    if (parts.length == 5) {
+                        dbManager.executeUpdate(sqlQuery);
+                    }
+                }
+                // 3. É outro servidor Secundário?
+                else {
+                    System.out.println("→ CLASSIFICAÇÃO: É um servidor **SECUNDÁRIO** (Backup). (Deve ser ignorado)");
                 }
 
                 System.out.println("-----------------------------");
             }
 
-            ms.leaveGroup(group);
-            ms.close();
-
         } catch (Exception e) {
-            System.err.println("[HB MULTI] Erro no receiver: " + e.getMessage());
+            System.err.println("[HB Multi] Erro no receiver: " + e.getMessage());
         }
     }
 
-    // === SHUTDOWN: PARA AMBAS AS THREADS ===
+    // Shutdown único para parar as 2 threads
     public void shutdown() {
         running = false;
         this.interrupt();
 
-        if (multicastSocket != null && !multicastSocket.isClosed()) {
+        if (multicastSocket != null && !multicastSocket.isClosed())
             multicastSocket.close();
-        }
 
         System.out.println("[HB] Heartbeat sender + receiver parados.");
     }

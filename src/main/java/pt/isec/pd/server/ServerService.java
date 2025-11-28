@@ -78,7 +78,10 @@ public class ServerService {
                     tcpDbPort,
                     dbManager,
                     HEARTBEAT_INTERVAL_MS,
-                    primaryIp);
+                    primaryIp,
+                    primaryTcpClientPort,
+                    primaryDbPort,
+                    this);
             heartbeatManager.start();
             this.dbManager.setHeartbeatManager(this.heartbeatManager);
 
@@ -103,6 +106,14 @@ public class ServerService {
         } finally {
             shutdown();
         }
+    }
+
+    public int getPrimaryClientTcpPort() {
+        return primaryTcpClientPort;
+    }
+
+    public void initiateShutdown() {
+        this.shutdown();
     }
 
     private void initializeDatabaseLogic() {
@@ -340,6 +351,17 @@ public class ServerService {
 
                     if (this.isPrimary && !wasPrimary) {
                         System.out.println("[Server] PROMOVIDO A PRINCIPAL!");
+
+                        // 🛑 CORREÇÃO AQUI: Inicializar QueryPerformer quando promovido
+                        // O dbManager já foi criado no arranque (durante o downloadDatabaseFromPrimary)
+                        if (this.dbManager != null) {
+                            this.queryPerformer = new QueryPerformer(dbManager);
+                            System.out.println("[Server] QueryPerformer inicializado para modo PRINCIPAL.");
+                        } else {
+                            // Esta situação é improvável se o download tiver sucesso.
+                            System.err.println("[Server] ERRO FATAL: dbManager é nulo após promoção.");
+                            initiateShutdown();
+                        }
                     }
                 }
             } catch (Exception e) {
