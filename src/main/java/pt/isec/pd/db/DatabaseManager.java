@@ -83,9 +83,10 @@ public class DatabaseManager {
 
             stmt.execute("CREATE TABLE IF NOT EXISTS pergunta (" +
                     "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                    "code TEXT UNIQUE, " +
                     "text TEXT NOT NULL, " +
-                    "start_time TEXT, " +  // NOVO
-                    "end_time TEXT, " +    // NOVO
+                    "start_time TEXT, " +
+                    "end_time TEXT, " +
                     "docente_email TEXT, " +
                     "FOREIGN KEY(docente_email) REFERENCES docente(email))");
 

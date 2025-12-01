@@ -14,6 +14,7 @@ import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
 import pt.isec.pd.common.User;
 
+import java.io.IOException;
 import java.util.List;
 
 public class QuestionView extends BorderPane {
@@ -132,10 +133,11 @@ public class QuestionView extends BorderPane {
 
         int index = selected.getText().charAt(0) - 'a';
 
-        boolean isCorrect = client.submitAnswer(user, code, index);
+        try {
+            boolean isCorrect = client.submitAnswer(user, code, index);
 
-        btnSubmit.setDisable(true);
-        btnSubmit.setStyle("""
+            btnSubmit.setDisable(true);
+            btnSubmit.setStyle("""
             -fx-background-color: #BDBDBD;
             -fx-text-fill: black;
             -fx-font-size: 16px;
@@ -145,7 +147,11 @@ public class QuestionView extends BorderPane {
             -fx-alignment: CENTER;
         """);
 
-        showSubmittedPopup(isCorrect);
+            showSubmittedPopup(isCorrect);
+        } catch (IOException e) {
+            System.out.println("Error submitting answer: " + e.getMessage());
+        }
+
     }
 
     private void showSubmittedPopup(boolean isCorrect) {

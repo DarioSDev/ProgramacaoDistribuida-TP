@@ -264,6 +264,83 @@ public class ClientService implements ClientAPI {
         }
     }
 
+    @Override
+    public String validateQuestionCode(String code) throws IOException {
+        if (out == null) throw new IOException("Sem ligação TCP.");
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                out.writeObject(new Message(Command.VALIDATE_QUESTION_CODE, code));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse instanceof Message m && m.getData() instanceof String res) {
+                    return res; // "VALID", "INVALID", "EXPIRED", etc.
+                }
+                return "TIMEOUT";
+            } catch (InterruptedException e) {
+                return "ERROR";
+            }
+        }
+    }
+
+    @Override
+    public QuestionData getQuestionByCode(String code) {
+        if (out == null) return null; // Devia lançar exceção, mas a interface retorna objeto
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                out.writeObject(new Message(Command.GET_QUESTION, code));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse instanceof Message m && m.getData() instanceof Question q) {
+                    // Converter objeto Question (comum) para QuestionData (record do cliente)
+                    return new QuestionData(q.getQuestion(), List.of(q.getOptions()));
+                }
+                return null;
+
+            } catch (Exception e) {
+                return null;
+            }
+        }
+    }
+
+    @Override
+    public boolean submitAnswer(User user, String code, int index) throws IOException {
+        if (out == null) return false;
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                Object[] payload = new Object[]{ user.getEmail(), code, index };
+
+                out.writeObject(new Message(Command.SUBMIT_ANSWER, payload));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse instanceof Message m && m.getData() instanceof Boolean b) {
+                    return b;
+                }
+                return false;
+
+            } catch (InterruptedException e) {
+                return false;
+            }
+        }
+    }
+
     private String[] requestActiveServer() {
         try (DatagramSocket socket = new DatagramSocket()) {
             byte[] buf = "REQUEST_SERVER".getBytes();
@@ -291,9 +368,6 @@ public class ClientService implements ClientAPI {
         try { TimeUnit.MILLISECONDS.sleep(ms); } catch (InterruptedException ignored) {}
     }
 
-    @Override public QuestionData getQuestionByCode(String code) { return null; }
-    @Override public boolean submitAnswer(User user, String code, int index) { return false; }
-    @Override public String validateQuestionCode(String code) { return "INVALID"; }
     @Override public AnswerResultData getAnswerResult(User user, String code) { return null; }
     @Override public List<HistoryItem> getStudentHistory(User user, LocalDate start, LocalDate end, String filter) { return List.of(); }
     @Override public List<TeacherQuestionItem> getTeacherQuestions(User user, String filter) { return List.of(); }

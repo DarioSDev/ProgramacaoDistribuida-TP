@@ -3,6 +3,7 @@ package pt.isec.pd.db;
 import pt.isec.pd.common.*;
 
 import java.sql.*;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.time.format.DateTimeFormatter; // Novo import necessário para formatação da data/hora
@@ -144,24 +145,22 @@ public class QueryPerformer {
     // --- GESTÃO DE PERGUNTAS ---
 
     public boolean saveQuestion(Question q) {
-        // Query para inserção de Pergunta e obtenção do ID
         String sqlQuestion = String.format(
-                "INSERT INTO pergunta (text, start_time, end_time, docente_email) VALUES ('%s', %s, %s, '%s')",
-                q.getQuestion().replace("'", "''"), // Sanitização básica para evitar erros
+                "INSERT INTO pergunta (code, text, start_time, end_time, docente_email) VALUES ('%s', '%s', %s, %s, '%s')",
+                q.getId(), // <--- O código de 6 dígitos
+                q.getQuestion().replace("'", "''"),
                 q.getStartTime() != null ? "'" + q.getStartTime().format(DATETIME_FORMATTER) + "'" : "NULL",
                 q.getEndTime() != null ? "'" + q.getEndTime().format(DATETIME_FORMATTER) + "'" : "NULL",
-                q.getTeacherId() != null ? q.getTeacherId() : "unknown@isec.pt" // Deve ser o email do professor logado
+                q.getTeacherId() != null ? q.getTeacherId() : "unknown@isec.pt"
         );
 
         dbManager.getWriteLock().lock();
         try (Connection conn = dbManager.getConnection()) {
-            conn.setAutoCommit(false); // Iniciar Transação
+            conn.setAutoCommit(false);
 
             int questionId = -1;
 
-            // 1. Inserir a Pergunta
             try (Statement stmt = conn.createStatement()) {
-                // Usamos Statement para executar a query SQL já construída
                 stmt.executeUpdate(sqlQuestion, Statement.RETURN_GENERATED_KEYS);
 
                 ResultSet rs = stmt.getGeneratedKeys();
@@ -170,13 +169,12 @@ public class QueryPerformer {
 
             if (questionId == -1) throw new SQLException("Falha ao gerar ID da pergunta.");
 
-            // 2. Inserir Opções (usamos PreparedStatement com Batch para eficiência local)
             String sqlOption = "INSERT INTO opcao (text, is_correct, pergunta_id) VALUES (?, ?, ?)";
             try (PreparedStatement pstmt = conn.prepareStatement(sqlOption)) {
                 for (String optText : q.getOptions()) {
                     pstmt.setString(1, optText);
                     pstmt.setBoolean(2, optText.equals(q.getCorrectOption()));
-                    pstmt.setInt(3, questionId);
+                    pstmt.setLong(3, questionId);
                     pstmt.addBatch();
                 }
                 pstmt.executeBatch();
@@ -184,31 +182,11 @@ public class QueryPerformer {
 
             // 3. Commit da Transação e Replicação
             conn.commit();
-
-            // CONSTRUIR A QUERY COMPLETA DE REPLICAÇÃO (Pergunta + Opções)
-            // Para simplificar, vamos replicar APENAS a query de Pergunta
-            // Nota: Para replicação correta, TODAS as queries (Pergunta + Opções)
-            // deveriam ser concatenadas num único string SQL.
-
-            // Opção 1 (Simplificada): Apenas a pergunta (VAI FALHAR se as opções não forem replicadas)
-            // String replicationSql = sqlQuestion;
-
-            // Opção 2 (Correta - Exige concatenação das queries):
-            // Este é o método mais fiável, mas exige mais código.
-
-            // *** AQUI ESTÁ O COMPROMISSO ***
-            // Dada a complexidade de obter as queries batch, vamos assumir que o sistema de BD
-            // armazena as transações, e que apenas enviar a query principal dispara a replicação.
-            // Contudo, para o seu modelo, o mais simples é replicar APENAS a alteração da Pergunta:
-
-            // Chamamos o método do DatabaseManager que executa, incrementa a versão e envia o Heartbeat
-            dbManager.executeUpdate(sqlQuestion); // Passar o SQL já construído
-
+            dbManager.executeUpdate(sqlQuestion);
             System.out.println("[DB] Pergunta gravada. ID: " + questionId);
             return true;
 
         } catch (SQLException e) {
-            // Rollback em caso de erro
             try (Connection conn = dbManager.getConnection()) {
                 conn.rollback();
             } catch (SQLException rollbackE) {
@@ -259,6 +237,174 @@ public class QueryPerformer {
             }
 
             return false;
+
+        } catch (SQLException e) {
+            System.err.println("[DB] Erro submitAnswer: " + e.getMessage());
+            return false;
+        } finally {
+            dbManager.getWriteLock().unlock();
+        }
+    }
+
+    // VALIDAR CÓDIGO DA PERGUNTA
+    public String validateQuestionCode(String code) {
+        String sql = "SELECT start_time, end_time FROM pergunta WHERE code = ?";
+
+        dbManager.getReadLock().lock();
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setString(1, code);
+            ResultSet rs = pstmt.executeQuery();
+
+            if (!rs.next()) {
+                return "INVALID"; // Código não existe
+            }
+
+            String startStr = rs.getString("start_time");
+            String endStr = rs.getString("end_time");
+
+            if (startStr == null || endStr == null) return "VALID"; // Assumir válido se sem datas (ou tratar como erro)
+
+            LocalDateTime start = LocalDateTime.parse(startStr, DATETIME_FORMATTER);
+            LocalDateTime end = LocalDateTime.parse(endStr, DATETIME_FORMATTER);
+            LocalDateTime now = LocalDateTime.now();
+
+            if (now.isBefore(start)) return "NOT_STARTED";
+            if (now.isAfter(end)) return "EXPIRED";
+
+            return "VALID";
+
+        } catch (SQLException e) {
+            System.err.println("[DB] Erro ao validar código: " + e.getMessage());
+            return "ERROR";
+        } finally {
+            dbManager.getReadLock().unlock();
+        }
+    }
+
+    // OBTER PERGUNTA PELO CÓDIGO (Para o Aluno ver)
+    public Question getQuestionByCode(String code) {
+        String sqlQuestion = "SELECT id, text, start_time, end_time, docente_email FROM pergunta WHERE code = ?";
+        String sqlOptions = "SELECT text, is_correct FROM opcao WHERE pergunta_id = ? ORDER BY id ASC";
+
+        dbManager.getReadLock().lock();
+        try (Connection conn = dbManager.getConnection()) {
+
+            // Passo A: Buscar dados da Pergunta
+            long questionId = -1;
+            String text = null;
+            LocalDateTime start = null, end = null;
+            String teacherEmail = null;
+
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlQuestion)) {
+                pstmt.setString(1, code);
+                ResultSet rs = pstmt.executeQuery();
+                if (rs.next()) {
+                    questionId = rs.getLong("id");
+                    text = rs.getString("text");
+                    teacherEmail = rs.getString("docente_email");
+
+                    String sTime = rs.getString("start_time");
+                    String eTime = rs.getString("end_time");
+                    if (sTime != null) start = LocalDateTime.parse(sTime, DATETIME_FORMATTER);
+                    if (eTime != null) end = LocalDateTime.parse(eTime, DATETIME_FORMATTER);
+                }
+            }
+
+            if (questionId == -1) return null; // Não encontrou
+
+            // Passo B: Buscar Opções
+            List<String> optionsList = new ArrayList<>();
+            String correctOption = null;
+            int index = 0;
+
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlOptions)) {
+                pstmt.setLong(1, questionId);
+                ResultSet rs = pstmt.executeQuery();
+                while (rs.next()) {
+                    optionsList.add(rs.getString("text"));
+                    boolean isCorrect = rs.getBoolean("is_correct");
+                    if (isCorrect) {
+                        // Converte índice 0->a, 1->b, etc.
+                        correctOption = String.valueOf((char) ('a' + index));
+                    }
+                    index++;
+                }
+            }
+
+            // Construir o objeto (Nota: usamos um array vazio se null)
+            return new Question(
+                    text,
+                    correctOption,
+                    optionsList.toArray(new String[0]),
+                    start,
+                    end,
+                    teacherEmail
+            );
+
+        } catch (SQLException e) {
+            System.err.println("[DB] Erro getQuestionByCode: " + e.getMessage());
+            return null;
+        } finally {
+            dbManager.getReadLock().unlock();
+        }
+    }
+
+    // SUBMETER RESPOSTA
+    public boolean submitAnswer(String studentEmail, String code, int optionIndex) {
+        String sqlGetId = "SELECT id FROM pergunta WHERE code = ?";
+        String sqlGetOptions = "SELECT id FROM opcao WHERE pergunta_id = ? ORDER BY id ASC";
+        // A query de inserção completa para replicação
+        String sqlInsertReplica;
+
+        dbManager.getWriteLock().lock();
+        try (Connection conn = dbManager.getConnection()) {
+
+            // A. Descobrir ID da Pergunta pelo Code
+            long questionId = -1;
+            try(PreparedStatement pstmt = conn.prepareStatement(sqlGetId)){
+                pstmt.setString(1, code);
+                ResultSet rs = pstmt.executeQuery();
+                if(rs.next()) questionId = rs.getLong("id");
+            }
+            if (questionId == -1) return false;
+
+            // B. Descobrir ID da Opção pelo Índice (0, 1, 2...)
+            long optionId = -1;
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlGetOptions)) {
+                pstmt.setLong(1, questionId);
+                ResultSet rs = pstmt.executeQuery();
+                int currentIdx = 0;
+                while (rs.next()) {
+                    if (currentIdx == optionIndex) {
+                        optionId = rs.getLong("id");
+                        break;
+                    }
+                    currentIdx++;
+                }
+            }
+            if (optionId == -1) return false;
+
+            // C. Verificar se já respondeu (opcional, mas boa prática)
+            // ... (podes adicionar um SELECT aqui para evitar duplicados)
+
+            // D. Inserir
+            String insertSql = "INSERT INTO resposta (estudante_email, pergunta_id, opcao_id) VALUES (?, ?, ?)";
+            try(PreparedStatement pstmt = conn.prepareStatement(insertSql)){
+                pstmt.setString(1, studentEmail);
+                pstmt.setLong(2, questionId);
+                pstmt.setLong(3, optionId);
+                pstmt.executeUpdate();
+            }
+
+            // E. Replicar
+            sqlInsertReplica = String.format("INSERT INTO resposta (estudante_email, pergunta_id, opcao_id) VALUES ('%s', %d, %d)",
+                    studentEmail, questionId, optionId);
+            dbManager.incrementDbVersion(sqlInsertReplica);
+
+            System.out.println("[DB] Resposta recebida: " + studentEmail + " -> Questao " + code);
+            return true;
 
         } catch (SQLException e) {
             System.err.println("[DB] Erro submitAnswer: " + e.getMessage());

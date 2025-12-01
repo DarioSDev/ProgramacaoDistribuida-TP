@@ -26,11 +26,11 @@ public interface ClientAPI {
         throw new UnsupportedOperationException("getQuestionByCode não implementado.");
     }
 
-    default boolean submitAnswer(User user, String code, int index) {
+    default boolean submitAnswer(User user, String code, int index) throws IOException {
         throw new UnsupportedOperationException("submitAnswer não implementado.");
     }
 
-    default String validateQuestionCode(String code) {
+    default String validateQuestionCode(String code) throws IOException{
         throw new UnsupportedOperationException("validateQuestionCode não implementado.");
     }
 

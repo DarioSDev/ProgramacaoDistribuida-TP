@@ -12,7 +12,10 @@ import javafx.scene.paint.Color;
 import javafx.scene.shape.SVGPath;
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
+import pt.isec.pd.client.UserManager;
 import pt.isec.pd.common.User;
+
+import java.io.IOException;
 
 public class MenuStudentView extends BorderPane {
 
@@ -142,14 +145,20 @@ public class MenuStudentView extends BorderPane {
             return;
         }
 
-        String validation = client.validateQuestionCode(code.trim());
-
-        if (!"VALID".equals(validation)) {
-            showPopup("The code provided is invalid!");
+        try {
+            String validation = client.validateQuestionCode(code.trim());
+            if (!"VALID".equals(validation)) {
+                showPopup("The code provided is invalid!");
+                return;
+            }
+        } catch (IOException ex) {
+            showPopup("An error occurred while validating the code.");
             return;
         }
 
-        stateManager.showQuestionView(user, code.trim());
+
+
+        stateManager.showQuestionView(UserManager.getInstance().getUser(), code.trim());
     }
 
     private void showPopup(String text) {

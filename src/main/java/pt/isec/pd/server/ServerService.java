@@ -477,8 +477,40 @@ public class ServerService {
                             }
                         }
 
-                        case LOGOUT -> {
-                            responseMsg = new Message(Command.LOGOUT, "BYE");
+                        case LOGOUT -> responseMsg = new Message(Command.LOGOUT, "BYE");
+
+                        case VALIDATE_QUESTION_CODE -> {
+                            if (msg.getData() instanceof String code) {
+                                String result = queryPerformer.validateQuestionCode(code);
+                                System.out.println("[Server] Pedido de validação do código: " + code + " → " + result);
+                                out.writeObject(new Message(Command.VALIDATE_QUESTION_CODE, result));
+                                out.flush();
+                            }
+                        }
+
+                        case GET_QUESTION -> {
+                            if (msg.getData() instanceof String code) {
+                                System.out.println("[Server] Pedido de dados da pergunta: " + code);
+                                Question q = queryPerformer.getQuestionByCode(code);
+                                out.writeObject(new Message(Command.GET_QUESTION, q));
+                                out.flush();
+                            }
+                        }
+
+                        case SUBMIT_ANSWER -> {
+                            // O data é um array de objetos [email, code, index]
+                            if (msg.getData() instanceof Object[] arr && arr.length == 3) {
+                                String email = (String) arr[0];
+                                String code = (String) arr[1];
+                                int index = (int) arr[2];
+
+                                boolean success = queryPerformer.submitAnswer(email, code, index);
+                                out.writeObject(new Message(Command.SUBMIT_ANSWER, success));
+                                out.flush();
+                            } else {
+                                out.writeObject(new Message(Command.SUBMIT_ANSWER, false));
+                                out.flush();
+                            }
                         }
 
                         default -> responseMsg = new Message(cmd, "UNKNOWN_COMMAND");
