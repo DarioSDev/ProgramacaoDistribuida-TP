@@ -15,11 +15,13 @@ public class DirectoryHeartbeatMonitor extends Thread {
     // NOTA: 'servers' deve ser o lock para todas as operações de leitura/escrita.
     private final List<ServerInfo> servers;
     private volatile boolean running = true; // Para um encerramento limpo
+    private final DirectoryService directoryService;
 
-    public DirectoryHeartbeatMonitor(List<ServerInfo> servers) {
+    public DirectoryHeartbeatMonitor(List<ServerInfo> servers, DirectoryService directoryService) {
         this.servers = servers;
         setDaemon(true);
         setName("Heartbeat-Monitor");
+        this.directoryService = directoryService;
     }
 
     @Override
@@ -61,6 +63,7 @@ public class DirectoryHeartbeatMonitor extends Thread {
                     if (primaryRemoved && !servers.isEmpty()) {
                         ServerInfo newPrimary = servers.get(0);
                         System.out.println("   👑 [NEW PRIMARY] Promovido: " + newPrimary.getKey());
+                        directoryService.notifyAllServersAboutNewPrimary();
                     } else if (primaryRemoved && servers.isEmpty()) {
                         System.out.println("[Directory Monitor] Nenhum servidor ativo. Sem principal.");
                     }

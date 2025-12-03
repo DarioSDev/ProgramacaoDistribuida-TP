@@ -24,7 +24,7 @@ public class DirectoryService {
         System.out.println("[Directory] Serviço de diretoria a escutar no porto UDP " + udpPort);
         System.out.println("[Directory] Config: Heartbeat → servidores: " + (HEARTBEAT_TO_SERVERS_MS / 1000) + "s | Timeout remoção: " + (SERVER_TIMEOUT_MS / 1000) + "s");
 
-        new DirectoryHeartbeatMonitor(activeServers).start();
+        new DirectoryHeartbeatMonitor(activeServers, this).start();
         startDirectoryHeartbeatSender();
 
         try (DatagramSocket socket = new DatagramSocket(udpPort)) {
@@ -238,6 +238,31 @@ public class DirectoryService {
             System.out.printf("   %d. %s | reg: %d%s%n",
                     i++, s.getKey(), s.getRegistrationTime(),
                     (i == 2 ? " ← PRIMARY" : ""));
+        }
+    }
+
+    void notifyAllServersAboutNewPrimary() {
+        synchronized (activeServers) {
+            if (activeServers.isEmpty()) return;
+
+            ServerInfo newPrimary = activeServers.get(0);
+            String notification = String.format("PRIMARY %s %d %d",
+                    newPrimary.getAddress().getHostAddress(),
+                    newPrimary.getTcpClientPort(),
+                    newPrimary.getTcpDbPort());
+
+            System.out.println("[Directory] A NOTIFICAR TODOS os servidores do novo primary: " + newPrimary.getKey());
+
+            for (ServerInfo server : activeServers) {
+                try (DatagramSocket socket = new DatagramSocket()) {
+                    byte[] buf = notification.getBytes();
+                    DatagramPacket packet = new DatagramPacket(buf, buf.length,
+                            server.getAddress(), server.getUdpPort());  // usa o udpPort que recebeste no REGISTER
+                    socket.send(packet);
+                } catch (IOException e) {
+                    System.out.println("[Directory] Falha ao notificar " + server.getKey() + " do novo primary");
+                }
+            }
         }
     }
 }

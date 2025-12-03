@@ -171,15 +171,18 @@ public class DatabaseManager {
     }
 
     public void incrementDbVersion(String query) {
-        heartbeatManager.sendHeartbeat(query);
+        if (heartbeatManager != null) {
+            heartbeatManager.sendHeartbeatWithQuery(query);  // ← MÉTODO CERTO
+        }
+
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement()) {
 
             stmt.executeUpdate("UPDATE config SET version = version + 1 WHERE id = 1");
-            System.out.println("[DatabaseManager] Versão incrementada.");
+            System.out.println("[DB] Versão incrementada → " + getDbVersion());
 
         } catch (SQLException e) {
-            System.err.println("[DatabaseManager] Erro ao incrementar versão: " + e.getMessage());
+            System.err.println("[DB] Erro ao incrementar versão: " + e.getMessage());
         }
     }
 
@@ -193,8 +196,8 @@ public class DatabaseManager {
             return true;
 
         } catch (SQLException e) {
-            System.out.println("[DatabaseManager] SQL: " + sql);
-            System.err.println("[DatabaseManager] Erro SQL: " + e.getMessage());
+            System.err.println("[DB] SQL falhou: " + sql);
+            System.err.println("[DB] Erro: " + e.getMessage());
             return false;
         } finally {
             writeLock.unlock();
