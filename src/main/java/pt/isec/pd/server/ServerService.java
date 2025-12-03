@@ -1,5 +1,6 @@
 package pt.isec.pd.server;
 
+import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.common.*;
 import pt.isec.pd.db.DatabaseManager;
 import pt.isec.pd.db.QueryPerformer;
@@ -518,6 +519,22 @@ public class ServerService {
                                 List<Question> list = queryPerformer.getTeacherQuestions(email);
                                 // Enviar Lista (ArrayList é Serializable)
                                 out.writeObject(new Message(Command.GET_TEACHER_QUESTIONS, new ArrayList<>(list)));
+                                out.flush();
+                            }
+                        }
+
+                        case GET_STUDENT_HISTORY -> {
+                            if (msg.getData() instanceof String email) {
+                                List<ClientAPI.HistoryItem> history = queryPerformer.getStudentHistory(email);
+                                out.writeObject(new Message(Command.GET_STUDENT_HISTORY, new ArrayList<>(history)));
+                                out.flush();
+                            }
+                        }
+
+                        case GET_QUESTION_RESULTS -> {
+                            if (msg.getData() instanceof String code) {
+                                TeacherResultsData results = queryPerformer.getQuestionResults(code);
+                                out.writeObject(new Message(Command.GET_QUESTION_RESULTS, results));
                                 out.flush();
                             }
                         }

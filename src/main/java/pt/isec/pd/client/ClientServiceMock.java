@@ -79,68 +79,6 @@ public class ClientServiceMock implements ClientAPI {
         );
     }
 
-//    @Override
-//    public List<TeacherQuestionItem> getTeacherQuestions(User user, String filter) {
-//        return List.of(
-//                new TeacherQuestionItem("Capital Cities", LocalDate.of(2025, 1, 12), "Active"),
-//                new TeacherQuestionItem("Basic Math", LocalDate.of(2025, 3, 10), "Future"),
-//                new TeacherQuestionItem("Biology Quiz", LocalDate.of(2024, 11, 2), "Expired")
-//        );
-//    }
-
-//    @Override
-//    public boolean createQuestion(
-//            User user,
-//            String text,
-//            List<String> options,
-//            int correctIndex,
-//            LocalDate sd,
-//            LocalTime st,
-//            LocalDate ed,
-//            LocalTime et
-//    ) {
-//        System.out.println("\n[MOCK] CREATE QUESTION");
-//        System.out.println("Teacher: " + user.getEmail());
-//        System.out.println("Question: " + text);
-//        for (int i = 0; i < options.size(); i++) {
-//            System.out.println(" " + (char) ('a' + i) + ") " + options.get(i));
-//        }
-//        System.out.println("Correct index: " + correctIndex);
-//        System.out.println("Start: " + sd + " " + st);
-//        System.out.println("End: " + ed + " " + et);
-//        return true;
-//    }
-
-    @Override
-    public TeacherResultsData getQuestionResults(User user, String code) {
-        TeacherResultsData dataABC = new TeacherResultsData(
-                "\"What is the capital of France What is the capital of France What is the capital of France What is the capital of France?What is the capital of France\";",
-                List.of("Berlin", "Madrid", "Paris", "Lisbon"),
-                "c",
-                3,
-                List.of(
-                        new StudentAnswerInfo("Ana Silva", "ana@example.com", "a", false),
-                        new StudentAnswerInfo("João Costa", "joao@example.com", "c", true),
-                        new StudentAnswerInfo("Maria Santos", "maria@example.com", "b", false)
-                )
-        );
-
-        TeacherResultsData dataMath = new TeacherResultsData(
-                "2 + 2 = ?",
-                List.of("3", "4", "5", "22"),
-                "b",
-                2,
-                List.of(
-                        new StudentAnswerInfo("Pedrito", "pedro@example.com", "b", true),
-                        new StudentAnswerInfo("Sara Gomes", "sara@example.com", "a", false)
-                )
-        );
-
-        if (code.equalsIgnoreCase("ABC123")) return dataABC;
-        if (code.equalsIgnoreCase("MATH001")) return dataMath;
-        return null;
-    }
-
     @Override
     public boolean deleteQuestion(String questionId) {
         System.out.println("\n[MOCK] DELETE QUESTION");

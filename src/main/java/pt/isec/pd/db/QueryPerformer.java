@@ -1,8 +1,10 @@
 package pt.isec.pd.db;
 
+import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.common.*;
 
 import java.sql.*;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -143,7 +145,6 @@ public class QueryPerformer {
     }
 
     // --- GESTÃO DE PERGUNTAS ---
-
     public boolean saveQuestion(Question q) {
         String sqlQuestion = String.format(
                 "INSERT INTO pergunta (code, text, start_time, end_time, docente_email) VALUES ('%s', '%s', %s, %s, '%s')",
@@ -198,44 +199,55 @@ public class QueryPerformer {
         }
     }
 
-    public boolean submitAnswer(String studentEmail, int questionId, int optionIndex) {
-
-        String sqlGetOptions = "SELECT id FROM opcao WHERE pergunta_id = ? ORDER BY id ASC";
+    public boolean submitAnswer(String studentEmail, String code, int optionIndex) {
+        String sqlGetId = "SELECT id FROM pergunta WHERE code = ?";
+        String sqlGetOptions = "SELECT id, is_correct FROM opcao WHERE pergunta_id = ? ORDER BY id ASC";
 
         dbManager.getWriteLock().lock();
         try (Connection conn = dbManager.getConnection()) {
 
-            int realOptionId = -1;
-
-            // 1. Obter o ID real da Opção
-            try (PreparedStatement pstmt = conn.prepareStatement(sqlGetOptions)) {
-                pstmt.setInt(1, questionId);
+            // Obter ID da Pergunta
+            long questionId = -1;
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlGetId)) {
+                pstmt.setString(1, code);
                 ResultSet rs = pstmt.executeQuery();
+                if (rs.next()) questionId = rs.getLong("id");
+            }
+            if (questionId == -1) return false;
 
-                int currentIndex = 0;
+            // Obter ID da Opção e Verificar se é Correta
+            long optionId = -1;
+            boolean isCorrect = false;
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlGetOptions)) {
+                pstmt.setLong(1, questionId);
+                ResultSet rs = pstmt.executeQuery();
+                int currentIdx = 0;
                 while (rs.next()) {
-                    if (currentIndex == optionIndex) {
-                        realOptionId = rs.getInt("id");
+                    if (currentIdx == optionIndex) {
+                        optionId = rs.getLong("id");
+                        isCorrect = rs.getBoolean("is_correct");
                         break;
                     }
-                    currentIndex++;
+                    currentIdx++;
                 }
             }
+            if (optionId == -1) return false;
 
-            if (realOptionId == -1) return false;
-
-            // 2. Construir a query SQL final (replicação)
-            String sqlInsertAnswer = String.format(
-                    "INSERT INTO resposta (estudante_email, pergunta_id, opcao_id) VALUES ('%s', %d, %d)",
-                    studentEmail, questionId, realOptionId);
-
-            // Chamamos o método do DatabaseManager que executa, incrementa a versão e envia o Heartbeat
-            if (dbManager.executeUpdate(sqlInsertAnswer)) {
-                System.out.println("[DB] Resposta submetida (via update): " + studentEmail);
-                return true;
+            String insertSql = "INSERT OR IGNORE INTO resposta (estudante_email, pergunta_id, opcao_id) VALUES (?, ?, ?)";
+            try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
+                pstmt.setString(1, studentEmail);
+                pstmt.setLong(2, questionId);
+                pstmt.setLong(3, optionId);
+                pstmt.executeUpdate();
             }
 
-            return false;
+            // 4. Replicar
+            String replicaSql = String.format("INSERT OR IGNORE INTO resposta (estudante_email, pergunta_id, opcao_id) VALUES ('%s', %d, %d)",
+                    studentEmail, questionId, optionId);
+            dbManager.incrementDbVersion(replicaSql);
+
+            System.out.println("[DB] Resposta de " + studentEmail + " (Correta: " + isCorrect + ")");
+            return isCorrect; // Retorna se acertou para a UI mostrar verde/vermelho
 
         } catch (SQLException e) {
             System.err.println("[DB] Erro submitAnswer: " + e.getMessage());
@@ -243,6 +255,113 @@ public class QueryPerformer {
         } finally {
             dbManager.getWriteLock().unlock();
         }
+    }
+
+    // Histórico do Aluno
+    public List<ClientAPI.HistoryItem> getStudentHistory(String email) {
+        List<ClientAPI.HistoryItem> history = new ArrayList<>();
+        String sql = """
+            SELECT p.text, p.end_time, o.is_correct
+            FROM resposta r
+            JOIN pergunta p ON r.pergunta_id = p.id
+            JOIN opcao o ON r.opcao_id = o.id
+            WHERE r.estudante_email = ?
+            ORDER BY p.end_time DESC
+        """;
+
+        dbManager.getReadLock().lock();
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setString(1, email);
+            ResultSet rs = pstmt.executeQuery();
+
+            while (rs.next()) {
+                String qText = rs.getString("text");
+                String dateStr = rs.getString("end_time");
+                boolean correct = rs.getBoolean("is_correct");
+
+                LocalDate date = null;
+                if (dateStr != null) {
+                    date = LocalDateTime.parse(dateStr, DATETIME_FORMATTER).toLocalDate();
+                }
+
+                history.add(new ClientAPI.HistoryItem(qText, date, correct));
+            }
+        } catch (SQLException e) {
+            System.err.println("[DB] Erro history: " + e.getMessage());
+        } finally {
+            dbManager.getReadLock().unlock();
+        }
+        return history;
+    }
+
+    public TeacherResultsData getQuestionResults(String questionCode) {
+        // 1. pergunta e opções
+        Question q = getQuestionByCode(questionCode);
+        if (q == null) return null;
+
+        List<StudentAnswerInfo> studentAnswers = new ArrayList<>();
+        String sql = """
+            SELECT e.name, e.email, o.id as opcao_id
+            FROM resposta r
+            JOIN estudante e ON r.estudante_email = e.email
+            JOIN pergunta p ON r.pergunta_id = p.id
+            JOIN opcao o ON r.opcao_id = o.id
+            WHERE p.code = ?
+        """;
+
+        List<Long> orderedOptionIds = new ArrayList<>();
+        String sqlOpts = "SELECT id FROM opcao WHERE pergunta_id = (SELECT id FROM pergunta WHERE code = ?) ORDER BY id ASC";
+
+        dbManager.getReadLock().lock();
+        try (Connection conn = dbManager.getConnection()) {
+
+            // Mapeamento IDs
+            try(PreparedStatement ps = conn.prepareStatement(sqlOpts)) {
+                ps.setString(1, questionCode);
+                ResultSet rs = ps.executeQuery();
+                while(rs.next()) orderedOptionIds.add(rs.getLong("id"));
+            }
+
+            // Buscar Respostas
+            try(PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, questionCode);
+                ResultSet rs = ps.executeQuery();
+                while(rs.next()) {
+                    String name = rs.getString("name");
+                    String email = rs.getString("email");
+                    long optId = rs.getLong("opcao_id");
+
+                    // Calcular letra
+                    int idx = orderedOptionIds.indexOf(optId);
+                    String letter = (idx != -1) ? String.valueOf((char)('a' + idx)) : "?";
+                    boolean isCorrect = letter.equalsIgnoreCase(q.getCorrectOption());
+
+                    studentAnswers.add(new StudentAnswerInfo(name, email, letter, isCorrect));
+                }
+            }
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return null;
+        } finally {
+            dbManager.getReadLock().unlock();
+        }
+
+        String dateStr = "N/A";
+        if (q.getStartTime() != null) {
+            dateStr = q.getStartTime().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+        }
+
+        return new TeacherResultsData(
+                q.getQuestion(),
+                List.of(q.getOptions()),
+                q.getCorrectOption(),
+                dateStr,
+                studentAnswers.size(),
+                studentAnswers
+        );
     }
 
     // VALIDAR CÓDIGO DA PERGUNTA
@@ -347,69 +466,6 @@ public class QueryPerformer {
             return null;
         } finally {
             dbManager.getReadLock().unlock();
-        }
-    }
-
-    // SUBMETER RESPOSTA
-    public boolean submitAnswer(String studentEmail, String code, int optionIndex) {
-        String sqlGetId = "SELECT id FROM pergunta WHERE code = ?";
-        String sqlGetOptions = "SELECT id FROM opcao WHERE pergunta_id = ? ORDER BY id ASC";
-        // A query de inserção completa para replicação
-        String sqlInsertReplica;
-
-        dbManager.getWriteLock().lock();
-        try (Connection conn = dbManager.getConnection()) {
-
-            // A. Descobrir ID da Pergunta pelo Code
-            long questionId = -1;
-            try(PreparedStatement pstmt = conn.prepareStatement(sqlGetId)){
-                pstmt.setString(1, code);
-                ResultSet rs = pstmt.executeQuery();
-                if(rs.next()) questionId = rs.getLong("id");
-            }
-            if (questionId == -1) return false;
-
-            // B. Descobrir ID da Opção pelo Índice (0, 1, 2...)
-            long optionId = -1;
-            try (PreparedStatement pstmt = conn.prepareStatement(sqlGetOptions)) {
-                pstmt.setLong(1, questionId);
-                ResultSet rs = pstmt.executeQuery();
-                int currentIdx = 0;
-                while (rs.next()) {
-                    if (currentIdx == optionIndex) {
-                        optionId = rs.getLong("id");
-                        break;
-                    }
-                    currentIdx++;
-                }
-            }
-            if (optionId == -1) return false;
-
-            // C. Verificar se já respondeu (opcional, mas boa prática)
-            // ... (podes adicionar um SELECT aqui para evitar duplicados)
-
-            // D. Inserir
-            String insertSql = "INSERT INTO resposta (estudante_email, pergunta_id, opcao_id) VALUES (?, ?, ?)";
-            try(PreparedStatement pstmt = conn.prepareStatement(insertSql)){
-                pstmt.setString(1, studentEmail);
-                pstmt.setLong(2, questionId);
-                pstmt.setLong(3, optionId);
-                pstmt.executeUpdate();
-            }
-
-            // E. Replicar
-            sqlInsertReplica = String.format("INSERT INTO resposta (estudante_email, pergunta_id, opcao_id) VALUES ('%s', %d, %d)",
-                    studentEmail, questionId, optionId);
-            dbManager.incrementDbVersion(sqlInsertReplica);
-
-            System.out.println("[DB] Resposta recebida: " + studentEmail + " -> Questao " + code);
-            return true;
-
-        } catch (SQLException e) {
-            System.err.println("[DB] Erro submitAnswer: " + e.getMessage());
-            return false;
-        } finally {
-            dbManager.getWriteLock().unlock();
         }
     }
 

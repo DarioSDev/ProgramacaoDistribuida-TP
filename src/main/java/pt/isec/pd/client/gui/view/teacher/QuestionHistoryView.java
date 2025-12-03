@@ -12,6 +12,7 @@ import javafx.scene.shape.Circle;
 import javafx.scene.shape.SVGPath;
 import pt.isec.pd.client.*;
 import pt.isec.pd.common.Question;
+import pt.isec.pd.common.TeacherResultsData;
 import pt.isec.pd.common.User;
 
 import java.io.IOException;
@@ -291,14 +292,19 @@ public class QuestionHistoryView extends BorderPane {
 
             answers.setOnMouseClicked(e -> {
                 e.consume();
-                stateManager.showCheckQuestionDataView(user, new ClientServiceMock().getQuestionResults(UserManager.getInstance().getUser(), q.getQuestion())); // TODO
+                // WARNING: DUPLICATED CODE - refactor later
+                TeacherResultsData data = client.getQuestionResults(user, q.getId());
+                stateManager.showCheckQuestionDataView(user, data);
+
             });
 
             StackPane answersCell = createCell(answers, W_ANSWERS, Pos.CENTER);
 
             answersCell.setOnMouseClicked(e -> {
                 e.consume();
-                stateManager.showCheckQuestionDataView(user, new ClientServiceMock().getQuestionResults(UserManager.getInstance().getUser(), q.getQuestion())); // TODO
+                // WARNING: DUPLICATED CODE - refactor later
+                TeacherResultsData data = client.getQuestionResults(user, q.getId()); 
+                stateManager.showCheckQuestionDataView(user, data);
             });
 
             row.getChildren().add(answersCell);

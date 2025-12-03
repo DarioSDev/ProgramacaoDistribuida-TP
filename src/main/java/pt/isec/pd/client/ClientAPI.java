@@ -2,6 +2,7 @@ package pt.isec.pd.client;
 
 import jdk.jshell.spi.ExecutionControl;
 import pt.isec.pd.common.Question;
+import pt.isec.pd.common.TeacherResultsData;
 import pt.isec.pd.common.User;
 
 import java.io.IOException;
@@ -39,7 +40,7 @@ public interface ClientAPI {
         throw new UnsupportedOperationException("getAnswerResult não implementado.");
     }
 
-    default List<HistoryItem> getStudentHistory(User user, LocalDate start, LocalDate end, String filter) {
+    default List<HistoryItem> getStudentHistory(User user, LocalDate start, LocalDate end, String filter) throws IOException {
         throw new UnsupportedOperationException("getStudentHistory não implementado.");
     }
 
@@ -79,16 +80,6 @@ public interface ClientAPI {
     enum AnswerState { CORRECT, WRONG, SUBMITTED }
 
     record AnswerResultData(String question, AnswerState state, LocalDate date) {}
-
-    record StudentAnswerInfo(String studentName, String studentEmail, String answerLetter, boolean correct) {}
-
-    record TeacherResultsData(
-            String questionText,
-            List<String> options,
-            String correctOptionLetter,
-            int totalAnswers,
-            List<StudentAnswerInfo> answers
-    ) {}
 
     record TeacherQuestionItem(String title, LocalDate date, String status) {}
 

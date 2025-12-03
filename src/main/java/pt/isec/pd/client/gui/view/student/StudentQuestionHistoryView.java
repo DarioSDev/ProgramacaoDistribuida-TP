@@ -1,5 +1,6 @@
 package pt.isec.pd.client.gui.view.student;
 
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Cursor;
@@ -14,8 +15,8 @@ import pt.isec.pd.client.StateManager;
 import pt.isec.pd.common.Question;
 import pt.isec.pd.common.User;
 
+import java.io.IOException;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -90,7 +91,7 @@ public class StudentQuestionHistoryView extends BorderPane {
 
         this.setCenter(root);
 
-        loadMockData();
+        loadData();
         applyFilters();
     }
 
@@ -534,24 +535,23 @@ public class StudentQuestionHistoryView extends BorderPane {
         return t.length() <= max ? t : t.substring(0, max - 3) + "...";
     }
 
-    private void loadMockData() {
-        LocalDate base = LocalDate.now();
-        for (int i = 0; i < 50; i++) {
-            LocalDateTime start = base.atTime(0, 0).plusMinutes(i * 30);
-            LocalDateTime end = base.atTime(23, 59);
+    private void loadData() {
+        allItems.clear();
+        new Thread(() -> {
+            try {
+                List<ClientAPI.HistoryItem> history = client.getStudentHistory(user, null, null, null);
 
-            Question q = new Question(
-                    "Pergunta de teste " + (i + 1) + ": Qual é o package introduzido no Java para HTTP Client?",
-                    "a",
-                    new String[]{"java.net.http", "javax.http", "org.apache.http", "com.google.http"},
-                    start,
-                    end,
-                    String.valueOf(i)
-            );
-
-            boolean isCorrect = (i % 3 != 0);
-            allItems.add(new StudentHistoryItem(q, isCorrect));
-        }
+                Platform.runLater(() -> {
+                    for (ClientAPI.HistoryItem item : history) {
+                        // TODO Map HistoryItem para StudentHistoryItem
+//                         allItems.add(new StudentHistoryItem(item.questionText(), item.correct(), item.date()));
+                    }
+                    applyFilters();
+                });
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }).start();
     }
 
     private static class StudentHistoryItem {

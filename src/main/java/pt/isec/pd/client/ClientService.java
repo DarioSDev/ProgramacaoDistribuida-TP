@@ -377,6 +377,57 @@ public class ClientService implements ClientAPI {
             }
         }
     }
+    @Override
+    public List<HistoryItem> getStudentHistory(User user, LocalDate start, LocalDate end, String filter) {
+        if (out == null) return new ArrayList<>();
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                out.writeObject(new Message(Command.GET_STUDENT_HISTORY, user.getEmail()));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse instanceof Message m && m.getData() instanceof List<?> list) {
+                    return (List<HistoryItem>) list;
+                }
+                return new ArrayList<>();
+            } catch (InterruptedException e) {
+                return new ArrayList<>();
+            } catch (IOException e) {
+                return new ArrayList<>();
+            }
+        }
+    }
+
+    @Override
+    public TeacherResultsData getQuestionResults(User user, String questionCode) {
+        if (out == null) return null;
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                out.writeObject(new Message(Command.GET_QUESTION_RESULTS, questionCode));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse instanceof Message m && m.getData() instanceof TeacherResultsData data) {
+                    System.out.println("[Client] Recebidos resultados para a questão " + questionCode);
+                    System.out.println("[Client] Recebidos resultados para a questão " + data);
+                    return data;
+                }
+                return null;
+            } catch (InterruptedException | IOException e) {
+                return null;
+            }
+        }
+    }
 
     private String[] requestActiveServer() {
         try (DatagramSocket socket = new DatagramSocket()) {
@@ -406,7 +457,4 @@ public class ClientService implements ClientAPI {
     }
 
     @Override public AnswerResultData getAnswerResult(User user, String code) { return null; }
-    @Override public List<HistoryItem> getStudentHistory(User user, LocalDate start, LocalDate end, String filter) { return List.of(); }
-//    @Override public List<TeacherQuestionItem> getTeacherQuestions(User user, String filter) { return List.of(); }
-    @Override public TeacherResultsData getQuestionResults(User user, String questionCode) { return null; }
 }

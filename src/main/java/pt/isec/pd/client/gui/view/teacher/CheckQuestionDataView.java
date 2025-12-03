@@ -12,6 +12,8 @@ import javafx.scene.shape.SVGPath;
 import javafx.stage.FileChooser;
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
+import pt.isec.pd.common.StudentAnswerInfo;
+import pt.isec.pd.common.TeacherResultsData;
 import pt.isec.pd.common.User;
 
 import java.io.File;
@@ -28,7 +30,7 @@ public class CheckQuestionDataView extends BorderPane {
     private final StateManager stateManager;
     private final User user;
 
-    private ClientAPI.TeacherResultsData results;
+    private TeacherResultsData results;
 
     private static final String COLOR_PRIMARY = "#FF7A00";
     private static final String COLOR_BG = "#1A1A1A";
@@ -52,7 +54,7 @@ public class CheckQuestionDataView extends BorderPane {
     private final Button backButton = new Button("Back");
     private final Button exportButton = new Button("Export");
 
-    public CheckQuestionDataView(ClientAPI client, StateManager stateManager, User user, ClientAPI.TeacherResultsData results) {
+    public CheckQuestionDataView(ClientAPI client, StateManager stateManager, User user, TeacherResultsData results) {
         this.client = client;
         this.stateManager = stateManager;
         this.user = user;
@@ -95,12 +97,12 @@ public class CheckQuestionDataView extends BorderPane {
         Region spacerQ = new Region();
         HBox.setHgrow(spacerQ, Priority.ALWAYS);
 
-        Label dateLabelTop = new Label(LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
+        Label dateLabelTop = new Label(results.getCreationDate());
         dateLabelTop.setStyle("-fx-text-fill: white; -fx-font-size: 14px;");
 
         questionHeader.getChildren().addAll(qTitle, spacerQ, dateLabelTop);
 
-        Label qText = new Label(results.questionText());
+        Label qText = new Label(results.getQuestionText());
         qText.setWrapText(true);
         qText.setStyle("-fx-text-fill: white; -fx-font-size: 14px;");
 
@@ -153,8 +155,8 @@ public class CheckQuestionDataView extends BorderPane {
         Label lblCorrect = new Label("Correct Option");
         lblCorrect.setStyle("-fx-text-fill: " + COLOR_PRIMARY + "; -fx-font-size: 14px; -fx-font-weight: bold;");
 
-        String correctLetter = results.correctOptionLetter().toLowerCase();
-        List<String> options = results.options();
+        String correctLetter = results.getCorrectOptionLetter().toLowerCase();
+        List<String> options = results.getOptions();
 
         correctBox.getChildren().add(lblCorrect);
 
@@ -186,7 +188,7 @@ public class CheckQuestionDataView extends BorderPane {
         Label lblTotalTitle = new Label("Total Answers");
         lblTotalTitle.setStyle("-fx-text-fill: " + COLOR_PRIMARY + "; -fx-font-size: 14px; -fx-font-weight: bold;");
 
-        Label lblTotal = new Label(Integer.toString(results.totalAnswers()));
+        Label lblTotal = new Label(Integer.toString(results.getTotalAnswers()));
         lblTotal.setStyle("-fx-text-fill: white; -fx-font-size: 18px; -fx-font-weight: bold;");
 
         totalBox.getChildren().addAll(lblTotalTitle, lblTotal);
@@ -237,7 +239,7 @@ public class CheckQuestionDataView extends BorderPane {
         rowsBox.setPadding(Insets.EMPTY);
         rowsBox.setStyle("-fx-padding: 0;");
 
-        renderRows(results.answers());
+        renderRows(results.getAnswers());
 
         ScrollPane scroll = new ScrollPane(rowsBox);
         scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
@@ -332,7 +334,7 @@ public class CheckQuestionDataView extends BorderPane {
     }
 
 
-    private void renderRows(List<ClientAPI.StudentAnswerInfo> answers) {
+    private void renderRows(List<StudentAnswerInfo> answers) {
         rowsBox.getChildren().clear();
 
         if (answers == null || answers.isEmpty()) {
@@ -344,7 +346,7 @@ public class CheckQuestionDataView extends BorderPane {
         }
 
         int idx = 1;
-        for (ClientAPI.StudentAnswerInfo info : answers) {
+        for (StudentAnswerInfo info : answers) {
             HBox row = new HBox(0);
             row.setAlignment(Pos.CENTER_LEFT);
             row.setMinHeight(28);
@@ -354,15 +356,15 @@ public class CheckQuestionDataView extends BorderPane {
             id.setStyle("-fx-text-fill:white; -fx-font-size:12px;");
             row.getChildren().add(createCell(id, W_ID, Pos.CENTER_LEFT));
 
-            Label name = new Label(info.studentName());
+            Label name = new Label(info.getStudentName());
             name.setStyle("-fx-text-fill:white; -fx-font-size:12px;");
             row.getChildren().add(createCell(name, W_NAME, Pos.CENTER_LEFT));
 
-            Label email = new Label(info.studentEmail());
+            Label email = new Label(info.getStudentEmail());
             email.setStyle("-fx-text-fill:white; -fx-font-size:12px;");
             row.getChildren().add(createCell(email, W_EMAIL, Pos.CENTER_LEFT));
 
-            Label ans = new Label(info.answerLetter());
+            Label ans = new Label(info.getAnswerLetter());
             ans.setStyle("-fx-text-fill:white; -fx-font-size:12px;");
             row.getChildren().add(createCell(ans, W_ANSWER, Pos.CENTER));
 
@@ -578,13 +580,13 @@ public class CheckQuestionDataView extends BorderPane {
             pw.println("ID" + sep + "Name" + sep + "Email" + sep + "Answer" + sep + "Correct");
 
             int idx = 1;
-            for (ClientAPI.StudentAnswerInfo info : results.answers()) {
+            for (StudentAnswerInfo info : results.getAnswers()) {
                 String id = String.format("%09d", idx++);
-                String correct = info.correct() ? "YES" : "NO";
+                String correct = info.isCorrect() ? "YES" : "NO";
                 pw.println(id + sep
-                        + safe(info.studentName()) + sep
-                        + safe(info.studentEmail()) + sep
-                        + safe(info.answerLetter()) + sep
+                        + safe(info.getStudentName()) + sep
+                        + safe(info.getStudentEmail()) + sep
+                        + safe(info.getAnswerLetter()) + sep
                         + correct);
             }
         } catch (IOException e) {

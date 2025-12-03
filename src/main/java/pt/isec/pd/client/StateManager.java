@@ -12,6 +12,7 @@ import pt.isec.pd.client.gui.view.student.QuestionView;
 import pt.isec.pd.client.gui.view.student.StudentQuestionHistoryView;
 import pt.isec.pd.client.gui.view.teacher.*;
 import pt.isec.pd.common.Question;
+import pt.isec.pd.common.TeacherResultsData;
 import pt.isec.pd.common.User;
 
 public class StateManager {
@@ -76,7 +77,7 @@ public class StateManager {
         setScene(new EditQuestionView(client, this, user, question), "Edit Question");
     }
 
-    public void showCheckQuestionDataView(User user, ClientAPI.TeacherResultsData results) {
+    public void showCheckQuestionDataView(User user, TeacherResultsData results) {
         setScene(new CheckQuestionDataView(client, this, user, results),
                 "Questia - Question Results");
     }
