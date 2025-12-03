@@ -513,6 +513,15 @@ public class ServerService {
                             }
                         }
 
+                        case GET_TEACHER_QUESTIONS -> {
+                            if (msg.getData() instanceof String email) {
+                                List<Question> list = queryPerformer.getTeacherQuestions(email);
+                                // Enviar Lista (ArrayList é Serializable)
+                                out.writeObject(new Message(Command.GET_TEACHER_QUESTIONS, new ArrayList<>(list)));
+                                out.flush();
+                            }
+                        }
+
                         default -> responseMsg = new Message(cmd, "UNKNOWN_COMMAND");
                     }
                 } catch (Exception e) {

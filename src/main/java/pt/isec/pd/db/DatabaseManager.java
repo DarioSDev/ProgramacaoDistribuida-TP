@@ -193,6 +193,7 @@ public class DatabaseManager {
             return true;
 
         } catch (SQLException e) {
+            System.out.println("[DatabaseManager] SQL: " + sql);
             System.err.println("[DatabaseManager] Erro SQL: " + e.getMessage());
             return false;
         } finally {

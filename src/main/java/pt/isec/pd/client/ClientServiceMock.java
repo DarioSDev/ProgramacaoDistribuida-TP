@@ -79,14 +79,14 @@ public class ClientServiceMock implements ClientAPI {
         );
     }
 
-    @Override
-    public List<TeacherQuestionItem> getTeacherQuestions(User user, String filter) {
-        return List.of(
-                new TeacherQuestionItem("Capital Cities", LocalDate.of(2025, 1, 12), "Active"),
-                new TeacherQuestionItem("Basic Math", LocalDate.of(2025, 3, 10), "Future"),
-                new TeacherQuestionItem("Biology Quiz", LocalDate.of(2024, 11, 2), "Expired")
-        );
-    }
+//    @Override
+//    public List<TeacherQuestionItem> getTeacherQuestions(User user, String filter) {
+//        return List.of(
+//                new TeacherQuestionItem("Capital Cities", LocalDate.of(2025, 1, 12), "Active"),
+//                new TeacherQuestionItem("Basic Math", LocalDate.of(2025, 3, 10), "Future"),
+//                new TeacherQuestionItem("Biology Quiz", LocalDate.of(2024, 11, 2), "Expired")
+//        );
+//    }
 
 //    @Override
 //    public boolean createQuestion(

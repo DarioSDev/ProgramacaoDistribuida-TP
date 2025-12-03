@@ -18,7 +18,7 @@ public class Question implements Serializable {
     public String getTeacherId() {
         return teacherId;
     }
-
+    private int totalAnswers;
     private LocalDateTime startTime;
     private LocalDateTime endTime;
     private String teacherId;
@@ -109,6 +109,9 @@ public class Question implements Serializable {
         this.endTime = endTime;
     }
 
+    public int getTotalAnswers() { return totalAnswers; }
+    public void setTotalAnswers(int totalAnswers) { this.totalAnswers = totalAnswers; }
+
     public boolean isActive() {
         LocalDateTime now = LocalDateTime.now();
         return now.isAfter(startTime) && now.isBefore(endTime);
@@ -121,6 +124,7 @@ public class Question implements Serializable {
                 ", question='" + question + '\'' +
                 ", options=" + Arrays.toString(options) +
                 ", correctOption='" + correctOption + '\'' +
+                ", totalAnswers=" + totalAnswers +
                 ", startTime=" + startTime +
                 ", endTime=" + endTime +
                 ", teacherId='" + teacherId + '\'' +

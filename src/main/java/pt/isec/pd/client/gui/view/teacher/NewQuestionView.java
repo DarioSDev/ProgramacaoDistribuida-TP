@@ -10,6 +10,11 @@ import javafx.scene.shape.SVGPath;
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
 import pt.isec.pd.common.User;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -28,6 +33,7 @@ public class NewQuestionView extends BorderPane {
     private static final double DROPDOWN_OFFSET_Y = 100;
     private StackPane overlay;
     private VBox submitPopup;
+    private Label codeNumber;
 
 
     private static final String SVG_MENU =
@@ -102,6 +108,7 @@ public class NewQuestionView extends BorderPane {
         StackPane.setAlignment(overlay, Pos.CENTER);
 
         initOptions();
+        setDefaultDateTime();
     }
 
     private VBox createCenterContent() {
@@ -505,14 +512,12 @@ public class NewQuestionView extends BorderPane {
     }
 
     private void handleSubmit() {
-        // 1. Validar Texto da Pergunta
         String text = questionArea.getText().trim();
         if (text.isEmpty()) {
             showAlert(Alert.AlertType.WARNING, "Dados em Falta", "Por favor insira o texto da pergunta.");
             return;
         }
 
-        // 2. Validar Opções e Resposta Correta
         List<String> options = new ArrayList<>();
         String correctOptionLetter = null;
 
@@ -520,11 +525,9 @@ public class NewQuestionView extends BorderPane {
         for (OptionRow row : optionRows) {
             String optText = row.textField.getText().trim();
 
-            // Ignorar opções vazias
             if (!optText.isEmpty()) {
                 options.add(optText);
 
-                // Se este rádio estiver selecionado, calculamos a letra correspondente (a, b, c...)
                 if (row.radioButton.isSelected()) {
                     correctOptionLetter = options.get(currentIndex);
                 }
@@ -554,10 +557,10 @@ public class NewQuestionView extends BorderPane {
         }
 
         // Converter para objetos de data
-        java.time.LocalDate sd = parseDate(sDate);
-        java.time.LocalTime st = parseTime(sTime);
-        java.time.LocalDate ed = parseDate(eDate);
-        java.time.LocalTime et = parseTime(eTime);
+        LocalDate sd = parseDate(sDate);
+        LocalTime st = parseTime(sTime);
+        LocalDate ed = parseDate(eDate);
+        LocalTime et = parseTime(eTime);
 
         // Verificar cronologia
         if (java.time.LocalDateTime.of(ed, et).isBefore(java.time.LocalDateTime.of(sd, st))) {
@@ -572,7 +575,7 @@ public class NewQuestionView extends BorderPane {
         new Thread(() -> {
             try {
                 // Chama o método do ClientService
-                boolean success = client.createQuestion(
+                ClientAPI.QuestionResult result = client.createQuestion(
                         user,
                         text,
                         options,
@@ -583,7 +586,8 @@ public class NewQuestionView extends BorderPane {
                 // Atualizar a UI
                 javafx.application.Platform.runLater(() -> {
                     submitButton.setDisable(false);
-                    if (success) {
+                    if (result.success()) {
+                        codeNumber.setText(result.id());
                         overlay.setVisible(true);
                     } else {
                         showAlert(Alert.AlertType.ERROR, "Erro no Servidor", "Não foi possível criar a pergunta. Tente novamente.");
@@ -600,7 +604,7 @@ public class NewQuestionView extends BorderPane {
         }).start();
     }
 
-    private java.time.LocalDate parseDate(String dateStr) {
+    private LocalDate parseDate(String dateStr) {
         try {
             String[] parts = dateStr.split("/");
             return java.time.LocalDate.of(
@@ -634,7 +638,6 @@ public class NewQuestionView extends BorderPane {
         alert.getDialogPane().setStyle("-fx-background-color: #D9D9D9; -fx-text-fill: black;");
         alert.showAndWait();
     }
-
 
     private static class OptionRow {
         final Label letterLabel;
@@ -697,7 +700,7 @@ public class NewQuestionView extends BorderPane {
         Label codeLabel = new Label("Code");
         codeLabel.setStyle("-fx-text-fill: black; -fx-font-size: 14px;");
 
-        Label codeNumber = new Label("123456");
+        codeNumber = new Label("-------");
         codeNumber.setStyle("""
         -fx-text-fill: #FF7A00;
         -fx-font-size: 18px;
@@ -713,8 +716,26 @@ public class NewQuestionView extends BorderPane {
         overlay.setOnMouseClicked(e -> {
             if (e.getTarget() == overlay) {
                 overlay.setVisible(false);
+                backButton.fire();
             }
         });
+    }
 
+    private void setDefaultDateTime() {
+        LocalDateTime now = LocalDateTime.now();
+
+        // Start: 5 minutos atrás
+        LocalDateTime start = now.minusMinutes(5);
+        // End: 5 minutos à frente (tempo total de 10 minutos de "janela" inicial)
+        LocalDateTime end = now.plusMinutes(5);
+
+        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+        DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm");
+
+        startDateField.setText(start.format(dateFormatter));
+        startTimeField.setText(start.format(timeFormatter));
+
+        endDateField.setText(end.format(dateFormatter));
+        endTimeField.setText(end.format(timeFormatter));
     }
 }

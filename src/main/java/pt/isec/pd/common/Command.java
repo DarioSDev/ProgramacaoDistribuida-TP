@@ -11,7 +11,8 @@ public enum Command {
 
     VALIDATE_QUESTION_CODE, // Verificar se o código existe e está ativo
     GET_QUESTION,           // Obter os dados da pergunta
-    SUBMIT_ANSWER;         // Enviar a resposta do aluno
+    SUBMIT_ANSWER,         // Enviar a resposta do aluno
+    GET_TEACHER_QUESTIONS;
 
     public static Command fromString(String s) {
         try {

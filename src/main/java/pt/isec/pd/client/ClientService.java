@@ -7,6 +7,7 @@ import java.net.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -225,8 +226,8 @@ public class ClientService implements ClientAPI {
     }
 
     @Override
-    public boolean createQuestion(User user, String text, List<String> options, String correctOption,
-                                  LocalDate sd, LocalTime st, LocalDate ed, LocalTime et) throws IOException {
+    public QuestionResult createQuestion(User user, String text, List<String> options, String correctOption,
+                                                   LocalDate sd, LocalTime st, LocalDate ed, LocalTime et) throws IOException {
         if (out == null) throw new IOException("Sem ligação TCP.");
 
         synchronized (lock) {
@@ -237,7 +238,7 @@ public class ClientService implements ClientAPI {
                 LocalDateTime start = LocalDateTime.of(sd, st);
                 LocalDateTime end = LocalDateTime.of(ed, et);
 
-                Question q = new Question(
+                Question question = new Question(
                         text,
                         correctOption,
                         options.toArray(new String[0]),
@@ -245,21 +246,31 @@ public class ClientService implements ClientAPI {
                         end,
                         user.getEmail()
                 );
-                System.out.println(q.toString());
+                System.out.println("A criar pergunta com ID local: " + question.getId());
 
-                out.writeObject(new Message(Command.CREATE_QUESTION, q));
+                out.writeObject(new Message(Command.CREATE_QUESTION, question));
                 out.flush();
 
                 lock.wait(5000);
 
-                if (syncResponse instanceof Boolean b) return b;
-                if (syncResponse instanceof Message m && m.getData() instanceof Boolean b) return b;
+                if (syncResponse == null) {
+                    expectingResponse = false;
+                    return new QuestionResult(false, null);
+                }
 
-                return false;
+                if (syncResponse instanceof Boolean success) {
+                    return new QuestionResult(success, success ? question.getId() : null);
+                }
+
+                if (syncResponse instanceof Message m && m.getData() instanceof Boolean success) {
+                    return new QuestionResult(success, success ? question.getId() : null);
+                }
+
+                return new QuestionResult(false, null);
 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                return false;
+                return new QuestionResult(false, null);
             }
         }
     }
@@ -341,6 +352,32 @@ public class ClientService implements ClientAPI {
         }
     }
 
+    @Override
+    public List<Question> getTeacherQuestions(User user, String filter) throws IOException {
+        if (out == null) return new ArrayList<>();
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                // Envia o email do professor
+                out.writeObject(new Message(Command.GET_TEACHER_QUESTIONS, user.getEmail()));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse instanceof Message m && m.getData() instanceof List<?> list) {
+                    return (List<Question>) list;
+                }
+                return new ArrayList<>();
+
+            } catch (InterruptedException e) {
+                return new ArrayList<>();
+            }
+        }
+    }
+
     private String[] requestActiveServer() {
         try (DatagramSocket socket = new DatagramSocket()) {
             byte[] buf = "REQUEST_SERVER".getBytes();
@@ -370,6 +407,6 @@ public class ClientService implements ClientAPI {
 
     @Override public AnswerResultData getAnswerResult(User user, String code) { return null; }
     @Override public List<HistoryItem> getStudentHistory(User user, LocalDate start, LocalDate end, String filter) { return List.of(); }
-    @Override public List<TeacherQuestionItem> getTeacherQuestions(User user, String filter) { return List.of(); }
+//    @Override public List<TeacherQuestionItem> getTeacherQuestions(User user, String filter) { return List.of(); }
     @Override public TeacherResultsData getQuestionResults(User user, String questionCode) { return null; }
 }

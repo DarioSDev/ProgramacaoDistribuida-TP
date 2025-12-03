@@ -1,6 +1,7 @@
 package pt.isec.pd.client;
 
 import jdk.jshell.spi.ExecutionControl;
+import pt.isec.pd.common.Question;
 import pt.isec.pd.common.User;
 
 import java.io.IOException;
@@ -42,15 +43,21 @@ public interface ClientAPI {
         throw new UnsupportedOperationException("getStudentHistory não implementado.");
     }
 
-    default List<TeacherQuestionItem> getTeacherQuestions(User user, String filter){
+//    default List<TeacherQuestionItem> getTeacherQuestions(User user, String filter){
+//        throw new UnsupportedOperationException("getTeacherQuestions não implementado.");
+//    }
+
+    default List<Question> getTeacherQuestions(User user, String filter) throws IOException {
         throw new UnsupportedOperationException("getTeacherQuestions não implementado.");
     }
 
-    default boolean createQuestion(
-            User user, // Para saber quem criou
+    record QuestionResult(boolean success, String id) {}
+
+    default QuestionResult createQuestion(
+            User user,
             String text,
             List<String> options,
-            String correctOption, // Alterado de int index para String texto para simplificar
+            String correctOption,
             LocalDate sd,
             LocalTime st,
             LocalDate ed,

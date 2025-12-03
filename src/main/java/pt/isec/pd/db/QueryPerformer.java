@@ -180,9 +180,8 @@ public class QueryPerformer {
                 pstmt.executeBatch();
             }
 
-            // 3. Commit da Transação e Replicação
             conn.commit();
-            dbManager.executeUpdate(sqlQuestion);
+            dbManager.incrementDbVersion(sqlQuestion);
             System.out.println("[DB] Pergunta gravada. ID: " + questionId);
             return true;
 
@@ -412,6 +411,68 @@ public class QueryPerformer {
         } finally {
             dbManager.getWriteLock().unlock();
         }
+    }
+
+    public List<Question> getTeacherQuestions(String teacherEmail) {
+        List<Question> list = new ArrayList<>();
+
+        // Query: Seleciona a pergunta e conta as respostas associadas
+        String sql = """
+            SELECT p.id, p.code, p.text, p.start_time, p.end_time, p.docente_email, 
+                   (SELECT COUNT(*) FROM resposta r WHERE r.pergunta_id = p.id) as total_respostas
+            FROM pergunta p 
+            WHERE p.docente_email = ? 
+            ORDER BY p.id DESC
+        """;
+
+        String sqlOptions = "SELECT text, is_correct FROM opcao WHERE pergunta_id = ? ORDER BY id ASC";
+
+        dbManager.getReadLock().lock();
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setString(1, teacherEmail);
+            ResultSet rs = pstmt.executeQuery();
+
+            while (rs.next()) {
+                long idDb = rs.getLong("id");
+                String code = rs.getString("code"); // O ID visível (6 dígitos)
+                String text = rs.getString("text");
+                String sTime = rs.getString("start_time");
+                String eTime = rs.getString("end_time");
+                int totalAnswers = rs.getInt("total_respostas");
+
+                LocalDateTime start = (sTime != null) ? LocalDateTime.parse(sTime, DateTimeFormatter.ISO_LOCAL_DATE_TIME) : null;
+                LocalDateTime end = (eTime != null) ? LocalDateTime.parse(eTime, DateTimeFormatter.ISO_LOCAL_DATE_TIME) : null;
+
+                // Recuperar opções
+                List<String> opts = new ArrayList<>();
+                String correct = "";
+                try (PreparedStatement psOpt = conn.prepareStatement(sqlOptions)) {
+                    psOpt.setLong(1, idDb);
+                    ResultSet rsOpt = psOpt.executeQuery();
+                    int idx = 0;
+                    while(rsOpt.next()) {
+                        opts.add(rsOpt.getString("text"));
+                        if(rsOpt.getBoolean("is_correct")) correct = String.valueOf((char)('a' + idx));
+                        idx++;
+                    }
+                }
+
+                Question q = new Question(text, correct, opts.toArray(new String[0]), start, end, teacherEmail);
+                q.setId(code);
+                q.setTotalAnswers(totalAnswers);
+
+                list.add(q);
+            }
+
+        } catch (SQLException e) {
+            System.err.println("[DB] Erro getTeacherQuestions: " + e.getMessage());
+        } finally {
+            dbManager.getReadLock().unlock();
+        }
+
+        return list;
     }
 
 }
