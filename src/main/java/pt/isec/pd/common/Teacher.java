@@ -8,8 +8,8 @@ public class Teacher extends User {
     private static final long serialVersionUID = 1L;
     private String id;
 
-    public Teacher(String name, String email, String password) {
-        super(name, email, password);
+    public Teacher(String name, String email, String password, String teacherCode) {
+        super(name, email, password, teacherCode);
         id = UUID.randomUUID().toString();
     }
 

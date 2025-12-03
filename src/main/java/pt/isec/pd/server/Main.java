@@ -1,9 +1,6 @@
-// pt.isec.pd.server.Main.java
 package pt.isec.pd.server;
 
-import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-
 import java.util.Scanner;
 
 @SpringBootApplication(scanBasePackages = "pt.isec.pd")
@@ -12,10 +9,10 @@ public class Main {
         try {
             System.out.println("Iniciando servidor...");
 
-            // Verificar argumentos
-            if (args.length < 2) {
-                System.err.println("Uso: java -jar server.jar <IP_DIRETORIA>:<PORTA_UDP> <IP_MULTICAST>");
-                System.err.println("Exemplo: java -cp server.jar pt.isec.pd.server.Main 127.0.0.1:9000 239.1.1.1");
+            // Verificar argumentos (agora requer 3 argumentos)
+            if (args.length < 3) {
+                System.err.println("Uso: java -jar server.jar <IP_DIRETORIA>:<PORTA_UDP> <IP_MULTICAST> <DIRETORIA_BD>");
+                System.err.println("Exemplo: java -cp server.jar pt.isec.pd.server.Main 127.0.0.1:9000 239.1.1.1 ./db_storage");
                 return;
             }
 
@@ -36,17 +33,15 @@ public class Main {
             }
 
             String multicastGroupIp = args[1];
+            String dbDirectoryPath = args[2]; // Novo argumento
 
             // Iniciar o ServerService com os parâmetros corretos
-            ServerService serverService = new ServerService(directoryHost, directoryPort, multicastGroupIp);
+            ServerService serverService = new ServerService(directoryHost, directoryPort, multicastGroupIp, dbDirectoryPath);
             serverService.start();
 
             // Teste para fazer o server anunciar que vai encerrar
             new Scanner(System.in).nextLine();
             serverService.shutdown();
-
-            // Opcional: ativar Spring Boot no futuro (REST API, etc.)
-            // SpringApplication.run(Main.class, args);
 
         } catch (Exception e) {
             System.err.println("Erro fatal no servidor:");

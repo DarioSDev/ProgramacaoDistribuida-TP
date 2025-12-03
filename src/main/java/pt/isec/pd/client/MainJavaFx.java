@@ -1,23 +1,56 @@
 package pt.isec.pd.client;
 
 import javafx.application.Application;
-import javafx.scene.Scene;
-import javafx.scene.control.Label;
-import javafx.scene.layout.StackPane;
 import javafx.stage.Stage;
 
 public class MainJavaFx extends Application {
+
+    @Override
+    public void init() throws Exception {
+        super.init();
+        Parameters args = getParameters();
+        if (args.getRaw().size() != 2) {
+            System.err.println("Uso: java -jar client.jar <IP_DIRETORIA> <PORTO_UDP>");
+            System.exit(1);
+        }
+    }
+
     @Override
     public void start(Stage stage) {
-        Label label = new Label("Client App");
-        StackPane root = new StackPane(label);
-        Scene scene = new Scene(root, 300, 200);
-        stage.setTitle("Client | TP PD");
-        stage.setScene(scene);
+
+        boolean USE_REAL_SERVER = true;
+
+        ClientAPI clientAPI;
+
+        if (USE_REAL_SERVER) {
+            var params = getParameters();
+            String directoryHost = params.getRaw().get(0);
+            int directoryPort = Integer.parseInt(params.getRaw().get(1));
+
+            ClientService real = new ClientService(directoryHost, directoryPort);
+
+            Thread t = new Thread(real::start);
+            t.setDaemon(true);
+            t.start();
+
+            clientAPI = real;
+
+        } else {
+            clientAPI = new ClientServiceMock();
+        }
+
+        StateManager sm = new StateManager(stage, clientAPI);
+
+        stage.setWidth(900);
+        stage.setHeight(700);
+        stage.setMinWidth(900);
+        stage.setMinHeight(700);
+
+        sm.showLogin();
         stage.show();
     }
 
     public static void main(String[] args) {
-        launch();
+        launch(args);
     }
 }

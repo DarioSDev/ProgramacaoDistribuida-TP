@@ -5,17 +5,19 @@ import java.time.Instant;
 
 public class ServerInfo {
     private final InetAddress address;
-    private final int tcpClientPort;    // para clientes
-    private final int tcpDbPort;        // para sync BD
-    private final int udpPort;          // para heartbeat do Directory
-    private Instant lastHeartbeat;
+    private final int tcpClientPort;
+    private final int tcpDbPort;
+    private final int udpPort;
+    private final long registrationTime;  // ← NOVO: timestamp do registo
+    private java.time.Instant lastHeartbeat;
 
     public ServerInfo(InetAddress address, int tcpClientPort, int tcpDbPort, int udpPort) {
         this.address = address;
         this.tcpClientPort = tcpClientPort;
         this.tcpDbPort = tcpDbPort;
         this.udpPort = udpPort;
-        this.lastHeartbeat = Instant.now();
+        this.registrationTime = System.currentTimeMillis();  // ← agora!
+        this.lastHeartbeat = java.time.Instant.now();
     }
 
     public InetAddress getAddress() { return address; }
@@ -23,6 +25,7 @@ public class ServerInfo {
     public int getTcpDbPort() { return tcpDbPort; }
     public int getUdpPort() { return udpPort; }
     public Instant getLastHeartbeat() { return lastHeartbeat; }
+    public long getRegistrationTime() { return registrationTime; }
 
     public void setLastHeartbeat(Instant lastHeartbeat) {
         this.lastHeartbeat = lastHeartbeat;
@@ -34,7 +37,8 @@ public class ServerInfo {
 
     @Override
     public String toString() {
-        return String.format("%s (client:%d, db:%d)", getKey(), tcpClientPort, tcpDbPort);
+        return String.format("%s:%d (client) | BD:%d | UDP:%d | reg:%d",
+                address.getHostAddress(), tcpClientPort, tcpDbPort, udpPort, registrationTime);
     }
 }
 
