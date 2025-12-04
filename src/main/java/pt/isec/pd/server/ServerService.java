@@ -91,7 +91,7 @@ public class ServerService {
             startDbSyncListener();
 
             multicastReceiverSocket = startMulticastReceiver();
-            multicastSenderSocket = startMulticastHeartbeat();
+            //multicastSenderSocket = startMulticastHeartbeat();
 
             System.out.println("[Server] Servidor iniciado.");
             if (isPrimary) {
@@ -606,30 +606,30 @@ public class ServerService {
         return receiver;
     }
 
-    private MulticastSocket startMulticastHeartbeat() throws IOException {
-        MulticastSocket sender = new MulticastSocket();
-        InetAddress group = InetAddress.getByName(MULTICAST_IP);
-
-        String msg = "HEARTBEAT " + tcpClientPort;
-        byte[] buf = msg.getBytes();
-
-        new Thread(() -> {
-            while (running) {
-                try {
-                    DatagramPacket packet = new DatagramPacket(buf, buf.length, group, MULTICAST_PORT);
-                    sender.send(packet);
-                    Thread.sleep(HEARTBEAT_INTERVAL_MS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                } catch (Exception e) {
-                    if (running) System.err.println("[MulticastSender] Erro: " + e.getMessage());
-                }
-            }
-        }, "Multicast-Sender").start();
-
-        return sender;
-    }
+//    private MulticastSocket startMulticastHeartbeat() throws IOException {
+//        MulticastSocket sender = new MulticastSocket();
+//        InetAddress group = InetAddress.getByName(MULTICAST_IP);
+//
+//        String msg = "HEARTBEAT " + tcpClientPort;
+//        byte[] buf = msg.getBytes();
+//
+//        new Thread(() -> {
+//            while (running) {
+//                try {
+//                    DatagramPacket packet = new DatagramPacket(buf, buf.length, group, MULTICAST_PORT);
+//                    sender.send(packet);
+//                    Thread.sleep(HEARTBEAT_INTERVAL_MS);
+//                } catch (InterruptedException e) {
+//                    Thread.currentThread().interrupt();
+//                    break;
+//                } catch (Exception e) {
+//                    if (running) System.err.println("[MulticastSender] Erro: " + e.getMessage());
+//                }
+//            }
+//        }, "Multicast-Sender").start();
+//
+//        return sender;
+//    }
 
     private void sendUnregister() {
         try {
