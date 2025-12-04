@@ -12,8 +12,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class ClientService implements ClientAPI {
-    private static final int MAX_SAME_SERVER_RETRY = 3;
-    private static final long SAME_SERVER_RETRY_DELAY_MS = 20000;
+    private static final long RETRY_DELAY_MS = 20000; // 20 segundos
     private static final int CONNECTION_TIMEOUT_MS = 5000;
 
     private final String directoryHost;
@@ -21,13 +20,16 @@ public class ClientService implements ClientAPI {
 
     private String currentServerIp = null;
     private int currentServerPort = -1;
-    private int sameServerFailureCount = 0;
 
     private Socket activeSocket = null;
     private ObjectOutputStream out = null;
     private ObjectInputStream in = null;
 
     private volatile boolean running = true;
+
+    // controla se já houve alguma ligação com sucesso (para saber se estamos em reconexão)
+    private boolean hasEverConnected = false;
+    private boolean lastConnectionFailed = false;
 
     private final Object lock = new Object();
     private Object syncResponse = null;
@@ -43,55 +45,66 @@ public class ClientService implements ClientAPI {
 
         while (running) {
             if (activeSocket == null || activeSocket.isClosed()) {
+
+                // Se já estivemos ligados e a última ligação caiu, espera 20s antes de tentar reconectar
+                if (hasEverConnected && lastConnectionFailed) {
+                    System.out.println("[Client] Conexão ao servidor perdida. Aguardando 20s antes de tentar reconectar...");
+                    sleep(RETRY_DELAY_MS);
+                    lastConnectionFailed = false; // para não ficar sempre a dormir
+                }
+
                 if (!tryConnectAndAuthenticate()) {
                     System.err.println("[Client] Falha crítica. A terminar cliente.");
                     break;
                 }
             }
+
             listenAndMaintainSession();
         }
+
         closeResources();
         System.out.println("[Client] Cliente REAL encerrado.");
     }
 
+    /**
+     * Tenta ligar ao servidor principal seguindo o flow:
+     * - Pergunta à diretoria qual é o primary
+     * - Tenta ligação TCP
+     * - Se falhar / não houver servidor → espera 20s e repete
+     * - Máximo 3 tentativas (1 imediata + 2 com espera de 20s). Se falhar, devolve false.
+     */
     private boolean tryConnectAndAuthenticate() {
-        while (running) {
-            String[] serverInfo = requestActiveServer();
+        for (int attempt = 1; attempt <= 3 && running; attempt++) {
 
-            if (serverInfo == null) {
-                System.err.println("[Client] Nenhum servidor disponível. Tentando de novo...");
-                sameServerFailureCount = 0;
-                sleep(5000);
-                continue;
-            }
+            String[] info = requestActiveServer();
 
-            String newIp = serverInfo[0];
-            int newPort = Integer.parseInt(serverInfo[1]);
+            if (info == null) {
+                System.err.printf("[Client] Diretoria não devolveu servidor (tentativa %d/3).%n", attempt);
+            } else {
+                String ip = info[0];
+                int port = Integer.parseInt(info[1]);
+                System.out.printf("[Client] Tentativa %d/3 de ligação ao PRIMARY %s:%d%n", attempt, ip, port);
 
-            boolean sameServer = newIp.equals(currentServerIp) && newPort == currentServerPort;
-
-            if (sameServer && sameServerFailureCount >= 1) {
-                sameServerFailureCount++;
-                if (sameServerFailureCount > MAX_SAME_SERVER_RETRY) {
-                    System.err.println("[Client] Esgotadas tentativas para o mesmo servidor.");
-                    return false;
+                if (attemptTcpConnection(ip, port)) {
+                    System.out.println("[Client] Ligação ao PRIMARY estabelecida ✅");
+                    currentServerIp = ip;
+                    currentServerPort = port;
+                    hasEverConnected = true;
+                    lastConnectionFailed = false;
+                    return true;
+                } else {
+                    System.err.println("[Client] Ligação TCP ao PRIMARY falhou ❌");
                 }
-                System.out.printf("[Client] Mesmo servidor. Esperando %ds...\n", SAME_SERVER_RETRY_DELAY_MS / 1000);
-                sleep(SAME_SERVER_RETRY_DELAY_MS);
-                continue;
             }
 
-            if (attemptTcpConnection(newIp, newPort)) {
-                currentServerIp = newIp;
-                currentServerPort = newPort;
-                sameServerFailureCount = 0;
-                return true;
+            if (attempt < 3) {
+                System.out.println("[Client] Aguardando 20s antes da próxima tentativa...");
+                sleep(RETRY_DELAY_MS);
             }
-
-            System.err.println("[Client] Falhou a ligação TCP.");
-            sameServerFailureCount = 1;
-            sleep(2000);
         }
+
+        System.err.println("[Client] Todas as tentativas de ligação ao servidor falharam ❌. Cliente vai morrer.");
+        running = false;
         return false;
     }
 
@@ -105,8 +118,13 @@ public class ClientService implements ClientAPI {
             out.flush();
             in = new ObjectInputStream(socket.getInputStream());
 
-            Object welcome = in.readObject();
-            System.out.println("[Client] Conectado: " + welcome);
+            // se o servidor enviar logo uma mensagem de boas-vindas, podes lê-la aqui
+            try {
+                Object welcome = in.readObject();
+                System.out.println("[Client] Conectado: " + welcome);
+            } catch (EOFException ignore) {
+                // servidor não enviou nada, seguimos à mesma
+            }
 
             activeSocket = socket;
             return true;
@@ -118,44 +136,89 @@ public class ClientService implements ClientAPI {
     }
 
     private void listenAndMaintainSession() {
-        boolean hardFailure = false;
         try {
-            if (activeSocket != null) activeSocket.setSoTimeout(0);
+            if (activeSocket == null || activeSocket.isClosed()) {
+                return;
+            }
+
+            activeSocket.setSoTimeout(0);
 
             while (running && activeSocket != null && !activeSocket.isClosed()) {
-                try {
-                    Object received = in.readObject();
+                Object received;
 
-                    synchronized (lock) {
-                        if (expectingResponse) {
-                            syncResponse = received;
-                            expectingResponse = false;
-                            lock.notifyAll();
-                        } else {
-                            System.out.println("[Server Async Push] " + received);
-                        }
-                    }
+                try {
+                    received = in.readObject();
                 } catch (SocketTimeoutException e) {
-                    // Ignorar timeout
+                    // sem timeout configurado, não deve acontecer; se acontecer, ignora
+                    continue;
+                }
+
+                synchronized (lock) {
+                    if (expectingResponse) {
+                        syncResponse = received;
+                        expectingResponse = false;
+                        lock.notifyAll();
+                    } else {
+                        System.out.println("[Server Async Push] " + received);
+                    }
                 }
             }
 
         } catch (EOFException e) {
             System.out.println("[Client] Servidor fechou a ligação.");
+            lastConnectionFailed = true;
+
         } catch (IOException | ClassNotFoundException e) {
             System.err.println("[Client] Conexão perdida: " + e.getMessage());
-            hardFailure = true;
+            lastConnectionFailed = true;
 
             synchronized (lock) {
                 syncResponse = null;
                 expectingResponse = false;
                 lock.notifyAll();
             }
+
         } finally {
             closeResources();
-            sameServerFailureCount = hardFailure ? 1 : 0;
         }
     }
+
+    private String[] requestActiveServer() {
+        try (DatagramSocket socket = new DatagramSocket()) {
+            byte[] buf = "REQUEST_SERVER".getBytes();
+            socket.send(new DatagramPacket(buf, buf.length, InetAddress.getByName(directoryHost), directoryPort));
+            socket.setSoTimeout(5000);
+            byte[] recv = new byte[256];
+            DatagramPacket packet = new DatagramPacket(recv, recv.length);
+            socket.receive(packet);
+            String response = new String(packet.getData(), 0, packet.getLength()).trim();
+            if (response.equals("NO_SERVER_AVAILABLE")) return null;
+            return response.split(" ");
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void closeResources() {
+        try { if (in != null) in.close(); } catch (Exception ignored) {}
+        try { if (out != null) out.close(); } catch (Exception ignored) {}
+        try { if (activeSocket != null) activeSocket.close(); } catch (Exception ignored) {}
+        in = null;
+        out = null;
+        activeSocket = null;
+    }
+
+    private void sleep(long ms) {
+        try {
+            TimeUnit.MILLISECONDS.sleep(ms);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    // ==========================
+    // Métodos da ClientAPI (os teus, intactos)
+    // ==========================
 
     @Override
     public String sendLogin(String email, String pwd) throws IOException {
@@ -227,7 +290,7 @@ public class ClientService implements ClientAPI {
 
     @Override
     public QuestionResult createQuestion(User user, String text, List<String> options, String correctOption,
-                                                   LocalDate sd, LocalTime st, LocalDate ed, LocalTime et) throws IOException {
+                                         LocalDate sd, LocalTime st, LocalDate ed, LocalTime et) throws IOException {
         if (out == null) throw new IOException("Sem ligação TCP.");
 
         synchronized (lock) {
@@ -334,7 +397,7 @@ public class ClientService implements ClientAPI {
                 expectingResponse = true;
                 syncResponse = null;
 
-                Object[] payload = new Object[]{ user.getEmail(), code, index };
+                Object[] payload = new Object[]{user.getEmail(), code, index};
 
                 out.writeObject(new Message(Command.SUBMIT_ANSWER, payload));
                 out.flush();
@@ -377,6 +440,7 @@ public class ClientService implements ClientAPI {
             }
         }
     }
+
     @Override
     public List<HistoryItem> getStudentHistory(User user, LocalDate start, LocalDate end, String filter) {
         if (out == null) return new ArrayList<>();
@@ -429,32 +493,14 @@ public class ClientService implements ClientAPI {
         }
     }
 
-    private String[] requestActiveServer() {
-        try (DatagramSocket socket = new DatagramSocket()) {
-            byte[] buf = "REQUEST_SERVER".getBytes();
-            socket.send(new DatagramPacket(buf, buf.length, InetAddress.getByName(directoryHost), directoryPort));
-            socket.setSoTimeout(5000);
-            byte[] recv = new byte[256];
-            DatagramPacket packet = new DatagramPacket(recv, recv.length);
-            socket.receive(packet);
-            String response = new String(packet.getData(), 0, packet.getLength()).trim();
-            if (response.equals("NO_SERVER_AVAILABLE")) return null;
-            return response.split(" ");
-        } catch (Exception e) {
-            return null;
-        }
+    @Override
+    public AnswerResultData getAnswerResult(User user, String code) {
+        // ainda não implementado no teu código original
+        return null;
     }
 
-    private void closeResources() {
-        try { if (in != null) in.close(); } catch (Exception ignored) {}
-        try { if (out != null) out.close(); } catch (Exception ignored) {}
-        try { if (activeSocket != null) activeSocket.close(); } catch (Exception ignored) {}
-        in = null; out = null; activeSocket = null;
+    public void stop() {
+        running = false;
+        closeResources();
     }
-
-    private void sleep(long ms) {
-        try { TimeUnit.MILLISECONDS.sleep(ms); } catch (InterruptedException ignored) {}
-    }
-
-    @Override public AnswerResultData getAnswerResult(User user, String code) { return null; }
 }
