@@ -7,6 +7,9 @@ import java.nio.charset.StandardCharsets;
 
 public class HeartbeatManager extends Thread {
 
+    private static final String MULTICAST_IP = "230.30.30.30";
+    private static final int MULTICAST_PORT = 3030;
+
     private final DatagramSocket socket;       // para HEARTBEAT da diretoria
     private final String directoryHost;        // host da diretoria
     private final int directoryPort;           // porto UDP da diretoria
@@ -18,7 +21,7 @@ public class HeartbeatManager extends Thread {
     private final int primaryClientTcpPort;    // porto TCP primary (recebido da diretoria)
     private final int primaryDBTcpPort;        // porto DB primary (recebido da diretoria)
     private final InetAddress primaryAddress;  // IP primary (mas não usado na comparação)
-    private final ServerService serverService;
+    private final ServerService serverService; // Para iniciar o shutdown em caso de erro
 
     private volatile boolean running = true;
 
@@ -70,14 +73,14 @@ public class HeartbeatManager extends Thread {
         }
     }
 
-    // SENDER sem query
+    // SENDER periódico (sem query)
     public void sendHeartbeat() {
         try {
-            InetAddress mcAddr = InetAddress.getByName("230.30.30.30");
+            InetAddress mcAddr = InetAddress.getByName(MULTICAST_IP);
             String msgMC = String.format("HEARTBEAT %d %d %d",
                     selfClientTcpPort, selfDBTcpPort, dbManager.getDbVersion());
             byte[] bufMC = msgMC.getBytes(StandardCharsets.UTF_8);
-            socket.send(new DatagramPacket(bufMC, bufMC.length, mcAddr, 3030));
+            socket.send(new DatagramPacket(bufMC, bufMC.length, mcAddr, MULTICAST_PORT));
 
             sendHeartbeatToDirectory(msgMC);
 
@@ -88,22 +91,31 @@ public class HeartbeatManager extends Thread {
         }
     }
 
-    // SENDER com query SQL incluída
+    // SENDER com query SQL incluída (USADO APENAS PELO PRIMARY)
     public void sendHeartbeat(String query) {
         try {
-            InetAddress mcAddr = InetAddress.getByName("230.30.30.30");
-            int newVersion = dbManager.getDbVersion();
+            InetAddress mcAddr = InetAddress.getByName(MULTICAST_IP);
+            // ATENÇÃO: Aqui usamos dbManager.getDbVersion() que DEVE ser a versão ANTES
+            // do incremento, mas a versão que o secundário deve receber é a versão *após* o incremento.
+            // No DatabaseManager, garantimos que o incremento ocorre DEPOIS da chamada a sendHeartbeat(query).
+            // Contudo, para simplificar e seguir a lógica comum de replicação, o HB deve ter a versão FINAL.
+            // Como o DatabaseManager incrementa a versão após esta chamada, vamos assumir que o valor atual + 1 é o correto.
+
+            // ATUALIZAÇÃO: O DatabaseManager foi refatorado para que sendHeartbeat seja chamado ANTES do incremento.
+            // Por isso, devemos adicionar +1 ao valor atual para representar a versão que o Secundário deverá ter.
+            int nextVersion = dbManager.getDbVersion() + 1;
+
             String msgMC = String.format("HEARTBEAT %d %d %d %s",
-                    selfClientTcpPort, selfDBTcpPort, newVersion, query);
+                    selfClientTcpPort, selfDBTcpPort, nextVersion, query);
             byte[] bufMC = msgMC.getBytes(StandardCharsets.UTF_8);
-            socket.send(new DatagramPacket(bufMC, bufMC.length, mcAddr, 3030));
+            socket.send(new DatagramPacket(bufMC, bufMC.length, mcAddr, MULTICAST_PORT));
 
             sendHeartbeatToDirectory(msgMC);
 
-            System.out.println("\nhb enviado -> " + msgMC);
+            System.out.println("\nhb enviado (query) -> " + msgMC);
 
         } catch (IOException e) {
-            System.out.println("\nhb enviado -> ERRO ao enviar c/ query: " + e.getMessage());
+            System.out.println("\nhb enviado (query) -> ERRO ao enviar c/ query: " + e.getMessage());
         }
     }
 
@@ -117,16 +129,16 @@ public class HeartbeatManager extends Thread {
         } catch (IOException ignored) {}
     }
 
-    // === THREAD RECEIVER: OUVE TODOS E CLASSIFICA POR PORTOS (debug) ===
+    // === THREAD RECEIVER: OUVE TODOS E CLASSIFICA POR PORTOS ===
     private void listenAllHeartbeats() {
         try {
-            MulticastSocket ms = new MulticastSocket(3030);
+            MulticastSocket ms = new MulticastSocket(MULTICAST_PORT);
             ms.setReuseAddress(true);
-            InetAddress group = InetAddress.getByName("230.30.30.30");
+            InetAddress group = InetAddress.getByName(MULTICAST_IP);
             ms.joinGroup(group);
             this.multicastSocket = ms;
 
-            System.out.println("[HB MULTI] A ouvir heartbeats multicast em 230.30.30.30:3030\n");
+            System.out.printf("[HB MULTI] A ouvir heartbeats multicast em %s:%d%n%n", MULTICAST_IP, MULTICAST_PORT);
 
             byte[] buffer = new byte[512];
 
@@ -135,36 +147,63 @@ public class HeartbeatManager extends Thread {
                 ms.receive(p);
                 String msg = new String(p.getData(), 0, p.getLength(), StandardCharsets.UTF_8).trim();
 
-                // Parse básico do heartbeat: HEARTBEAT <clientPort> <dbPort> <version> [query opcional]
+                // Parse básico do heartbeat: HEARTBEAT <portC> <portDB> <version> [query opcional]
                 String[] parts = msg.split("\\s+", 5);
 
-                // Verifica se tem pelo menos: HEARTBEAT <portC> <portDB> <version>
                 if (parts.length < 4 || !parts[0].equals("HEARTBEAT")) {
-                    System.out.println("hb recebido -> mal formatado ou não é HEARTBEAT: " + msg);
+                    System.out.println("hb recebido -> mal formatado: " + msg);
                     System.out.println("-----------------------------");
                     continue;
                 }
 
-                // Captura as portas do servidor que enviou o HB
                 int senderClientPort = Integer.parseInt(parts[1]);
-                int senderDbPort = Integer.parseInt(parts[2]);
+                int receivedVersion = Integer.parseInt(parts[3]);
 
-                // A query opcional pode estar ou não presente
-                String sqlQuery = parts.length == 5 ? parts[4] : "Nenhuma query incluída";
+                // Query: se houver 5 partes, a 5ª é a query, senão, null
+                String sqlQuery = parts.length == 5 ? parts[4] : null;
 
                 System.out.println("\n[HB Multi Recebido] De: " + p.getAddress().getHostAddress() + ":" + p.getPort());
                 System.out.println("Conteúdo: " + msg);
+                System.out.println("  → Versão Recebida: " + receivedVersion);
 
                 // 1. É o próprio servidor?
-                if (senderClientPort == selfClientTcpPort && senderDbPort == selfDBTcpPort) {
+                if (senderClientPort == selfClientTcpPort) {
                     System.out.println("→ CLASSIFICAÇÃO: É o **MEU** próprio heartbeat. (Deve ser ignorado)");
                 }
-                // 2. É o Primary atual (conforme registado no Directory)?
-                else if (senderClientPort == primaryClientTcpPort) { // Basta verificar a porta do cliente, que é única
+                // 2. É o Primary atual?
+                else if (senderClientPort == primaryClientTcpPort) {
                     System.out.println("→ CLASSIFICAÇÃO: É do servidor **PRINCIPAL** (Primary).");
-                    System.out.println("  → Query SQL incluída: " + (parts.length == 5 ? "SIM" : "NÃO"));
-                    if (parts.length == 5) {
-                        dbManager.executeUpdate(sqlQuery);
+
+                    int localVersion = dbManager.getDbVersion();
+
+                    // Com Query SQL (Alteração)
+                    if (sqlQuery != null) {
+                        System.out.println("  → Query SQL incluída: SIM");
+
+                        // Requisito: Versão recebida deve ser igual ao valor local acrescido de 1
+                        if (receivedVersion == localVersion + 1) {
+                            System.out.println("  → Sincronização OK. A aplicar query: " + sqlQuery);
+                            // [CORREÇÃO] Chama o método de sincronização que não notifica o cluster.
+                            dbManager.executeUpdateBySync(sqlQuery);
+                        } else {
+                            // Perda de sincronização
+                            System.err.printf("  → ERRO: Perda de sincronização (V_Received:%d != V_Local:%d+1). Terminando.%n",
+                                    receivedVersion, localVersion);
+                            serverService.initiateShutdown();
+                            break; // Termina o loop
+                        }
+                    }
+                    // Sem Query SQL (Heartbeat periódico do Primary)
+                    else {
+                        System.out.println("  → Query SQL incluída: NÃO");
+
+                        // Requisito: Sem query, mas com número de versão diferente => Termina
+                        if (receivedVersion != localVersion) {
+                            System.err.printf("  → ERRO: Perda de sincronização (V_Received:%d != V_Local:%d). Terminando.%n",
+                                    receivedVersion, localVersion);
+                            serverService.initiateShutdown();
+                            break; // Termina o loop
+                        }
                     }
                 }
                 // 3. É outro servidor Secundário?
@@ -176,7 +215,7 @@ public class HeartbeatManager extends Thread {
             }
 
         } catch (Exception e) {
-            System.err.println("[HB Multi] Erro no receiver: " + e.getMessage());
+            if (running) System.err.println("[HB Multi] Erro no receiver: " + e.getMessage());
         }
     }
 
@@ -185,8 +224,13 @@ public class HeartbeatManager extends Thread {
         running = false;
         this.interrupt();
 
-        if (multicastSocket != null && !multicastSocket.isClosed())
+        if (multicastSocket != null && !multicastSocket.isClosed()) {
+            try {
+                InetAddress group = InetAddress.getByName(MULTICAST_IP);
+                multicastSocket.leaveGroup(group);
+            } catch (IOException ignored) {}
             multicastSocket.close();
+        }
 
         System.out.println("[HB] Heartbeat sender + receiver parados.");
     }

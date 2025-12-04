@@ -45,8 +45,13 @@ public class DatabaseManager {
     }
 
     Connection getConnection() throws SQLException {
-        Connection conn = DriverManager.getConnection("jdbc:sqlite:" + dbPath);
-        return conn;
+        // Garante que o driver SQLite é carregado
+        try {
+            Class.forName("org.sqlite.JDBC");
+        } catch (ClassNotFoundException e) {
+            throw new SQLException("Driver SQLite não encontrado: " + e.getMessage());
+        }
+        return DriverManager.getConnection("jdbc:sqlite:" + dbPath);
     }
 
 
@@ -55,14 +60,11 @@ public class DatabaseManager {
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement()) {
 
+            // Criação das tabelas (mantida a estrutura original)
             stmt.execute("CREATE TABLE IF NOT EXISTS config (" +
                     "id INTEGER PRIMARY KEY CHECK (id = 1), " +
                     "version INTEGER NOT NULL DEFAULT 0, " +
                     "teacher_hash TEXT)");
-
-
-            System.out.println("[DB][SCHEMA] Tabela criada/verificada: <config>");
-
 
             stmt.execute("CREATE TABLE IF NOT EXISTS docente (" +
                     "email TEXT PRIMARY KEY, " +
@@ -70,16 +72,11 @@ public class DatabaseManager {
                     "password TEXT NOT NULL, " +
                     "extra TEXT)");
 
-            System.out.println("[DB][SCHEMA] Tabela criada/verificada: <docente>");
-
-
             stmt.execute("CREATE TABLE IF NOT EXISTS estudante (" +
                     "email TEXT PRIMARY KEY, " +
                     "name TEXT NOT NULL, " +
                     "password TEXT NOT NULL, " +
                     "student_number TEXT UNIQUE)");
-
-            System.out.println("[DB][SCHEMA] Tabela criada/verificada: <estudante>");
 
             stmt.execute("CREATE TABLE IF NOT EXISTS pergunta (" +
                     "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
@@ -90,18 +87,12 @@ public class DatabaseManager {
                     "docente_email TEXT, " +
                     "FOREIGN KEY(docente_email) REFERENCES docente(email))");
 
-            System.out.println("[DB][SCHEMA] Tabela criada/verificada: <pergunta>");
-
-
             stmt.execute("CREATE TABLE IF NOT EXISTS opcao (" +
                     "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
                     "text TEXT NOT NULL, " +
                     "is_correct BOOLEAN NOT NULL DEFAULT 0, " +
                     "pergunta_id INTEGER, " +
                     "FOREIGN KEY(pergunta_id) REFERENCES pergunta(id) ON DELETE CASCADE)");
-
-            System.out.println("[DB][SCHEMA] Tabela criada/verificada: <opcao>");
-
 
             stmt.execute("CREATE TABLE IF NOT EXISTS resposta (" +
                     "estudante_email TEXT, " +
@@ -112,22 +103,16 @@ public class DatabaseManager {
                     "FOREIGN KEY(pergunta_id) REFERENCES pergunta(id), " +
                     "FOREIGN KEY(opcao_id) REFERENCES opcao(id))");
 
-            System.out.println("[DB][SCHEMA] Tabela criada/verificada: <resposta>");
-
-
+            // Inicialização da versão e teacher_hash
             stmt.execute("INSERT OR IGNORE INTO config (id, version, teacher_hash) VALUES (1, 0, NULL)");
 
             PreparedStatement ps = conn.prepareStatement("SELECT teacher_hash FROM config WHERE id = 1");
             ResultSet rs = ps.executeQuery();
 
             if (rs.next()) {
-                System.out.println("[DB][SCHEMA] Inicializando teacher_hash...");
-
                 String current = rs.getString("teacher_hash");
                 if (current == null || current.isEmpty()) {
-
-//                    String teacherCode = "p4Ssw0!3d";
-                    String teacherCode = "...";
+                    String teacherCode = "p4Ssw0!3d"; // Código Hardcoded para o primeiro arranque
                     String hashed = hashCode(teacherCode);
 
                     PreparedStatement upd = conn.prepareStatement(
@@ -135,16 +120,11 @@ public class DatabaseManager {
                     );
                     upd.setString(1, hashed);
                     upd.executeUpdate();
-
-                    System.out.println("[DB][SCHEMA] teacher_hash gravado com sucesso!");
-
-
-                    System.out.println("[DatabaseManager] Código único dos docentes inicializado.");
                 }
             }
 
             schemaReady = true;
-            System.out.println("[DatabaseManager] Schema verificado em: " + dbPath);
+            System.out.println("[DatabaseManager] Schema verificado e inicializado em: " + dbPath);
 
         } catch (SQLException e) {
             System.err.println("[DatabaseManager] Erro ao criar schema: " + e.getMessage());
@@ -170,54 +150,112 @@ public class DatabaseManager {
         }
     }
 
-    public void incrementDbVersion(String query) {
-        heartbeatManager.sendHeartbeat(query);
+    // Método auxiliar para incrementar a versão *apenas* localmente (usado por executeUpdateBySync)
+    private void incrementDbVersionLocalOnly() {
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement()) {
 
             stmt.executeUpdate("UPDATE config SET version = version + 1 WHERE id = 1");
-            System.out.println("[DatabaseManager] Versão incrementada.");
+            // System.out.println("[DatabaseManager] Versão incrementada (LOCAL).");
 
         } catch (SQLException e) {
-            System.err.println("[DatabaseManager] Erro ao incrementar versão: " + e.getMessage());
+            System.err.println("[DatabaseManager] Erro ao incrementar versão (LOCAL): " + e.getMessage());
         }
     }
 
-    public boolean executeUpdate(String sql) {
+    /**
+     * Usado pelo Primary (Servidor Principal) para executar uma query iniciada por um cliente.
+     * Executa a query, incrementa a versão e notifica o cluster via Heartbeat com a query.
+     */
+    public boolean executeUpdateByClient(String sql) {
         writeLock.lock();
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement()) {
 
             stmt.executeUpdate(sql);
-            incrementDbVersion(sql);
+
+            // 1. O Primary envia o heartbeat com a query e a nova versão
+            // Nota: O getDbVersion() ainda retorna a versão antiga, mas o HeartbeatManager
+            // deve enviar a versão que será aplicada APÓS o incremento.
+            heartbeatManager.sendHeartbeat(sql);
+
+            // 2. Incrementa a versão na BD
+            incrementDbVersionLocalOnly();
+
+            System.out.println("[DatabaseManager] Query CLIENTE executada e notificada. SQL: " + sql);
             return true;
 
         } catch (SQLException e) {
-            System.out.println("[DatabaseManager] SQL: " + sql);
-            System.err.println("[DatabaseManager] Erro SQL: " + e.getMessage());
+            System.out.println("[DatabaseManager] Erro SQL (CLIENTE): " + sql);
+            System.err.println("[DatabaseManager] Erro SQL (CLIENTE): " + e.getMessage());
             return false;
         } finally {
             writeLock.unlock();
         }
     }
 
+    /**
+     * Usado pelo Servidor Secundário ao receber uma query de sincronização via Multicast.
+     * Apenas executa a query e incrementa a versão localmente (sem notificar).
+     */
+    public boolean executeUpdateBySync(String sql) {
+        writeLock.lock();
+        try (Connection conn = getConnection();
+             Statement stmt = conn.createStatement()) {
+
+            // Executa a query recebida do Primary
+            stmt.executeUpdate(sql);
+
+            // Incrementa a versão localmente
+            incrementDbVersionLocalOnly();
+
+            System.out.println("[DatabaseManager] Query SYNC executada. SQL: " + sql);
+            return true;
+
+        } catch (SQLException e) {
+            System.out.println("[DatabaseManager] Erro SQL (SYNC): " + sql);
+            System.err.println("[DatabaseManager] Erro SQL (SYNC): " + e.getMessage());
+            return false;
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    /**
+     * Usado pelo Primary após uma transação (multi-query com commit/rollback) ser concluída.
+     * Envia o Heartbeat com a query replicável (já commitada) e incrementa a versão.
+     */
+    public void notifyUpdateAfterTransaction(String replicableSql) {
+        writeLock.lock();
+        try (Connection conn = getConnection();
+             Statement stmt = conn.createStatement()) {
+
+            // 1. O Primary envia a query replicável
+            heartbeatManager.sendHeartbeat(replicableSql);
+
+            // 2. Incrementa a versão localmente
+            incrementDbVersionLocalOnly();
+
+            System.out.println("[DatabaseManager] Transação notificada e versão incrementada.");
+
+        } catch (SQLException e) {
+            System.err.println("[DatabaseManager] Erro ao incrementar versão (APÓS TRANSAÇÃO): " + e.getMessage());
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    // Método mantido inalterado
     public static String hashCode(String code) {
-        System.out.println("Antes do try: " + code);
         try {
             byte[] salt = "TEACHER_CODE_SALT".getBytes();
-            System.out.println("Debug 1");
             PBEKeySpec spec = new PBEKeySpec(code.toCharArray(), salt, 65536, 256);
-            System.out.println("Debug 2");
             SecretKeyFactory skf = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
-            System.out.println("Debug 3");
             byte[] hash = skf.generateSecret(spec).getEncoded();
-            System.out.println("Debug 4");
-            System.out.println("DEbug 5 " + Base64.getEncoder().encodeToString(hash));
             return Base64.getEncoder().encodeToString(hash);
         } catch (Exception e) {
             e.printStackTrace();
             throw new RuntimeException("Erro ao gerar hash", e);
         }
     }
-
 }

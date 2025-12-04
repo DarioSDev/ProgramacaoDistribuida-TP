@@ -4,11 +4,10 @@ import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.common.*;
 
 import java.sql.*;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.time.format.DateTimeFormatter; // Novo import necessário para formatação da data/hora
+import java.time.format.DateTimeFormatter;
 
 public class QueryPerformer {
     private final DatabaseManager dbManager;
@@ -25,36 +24,29 @@ public class QueryPerformer {
 
         if (user instanceof Student s) {
             tableName = "estudante";
-            // Nota: SQL construído diretamente, assumindo que user.getPassword() é o password final.
             values = String.format("'%s', '%s', '%s', '%s'",
                     user.getEmail(), user.getName(), user.getPassword(), s.getIdNumber());
-        } else if (user instanceof Teacher t) {
+        } else if (user instanceof Teacher) {
             if (!validateTeacherCode(user.getExtra())) {
                 System.err.println("[DB] Registo docente: Código de validação inválido.");
                 return false;
             }
             tableName = "docente";
-            // Usa o user.getExtra() que foi validado como valor para a coluna 'extra'.
             values = String.format("'%s', '%s', '%s', '%s'",
                     user.getEmail(), user.getName(), user.getPassword(), user.getExtra());
         } else {
             return false;
         }
 
-        // A query final deve ser replicável diretamente
+        // A query final deve ser replicável
         finalSql = String.format("INSERT INTO %s VALUES (%s)", tableName, values);
 
-        dbManager.getWriteLock().lock();
-        try {
-            // Chamamos o método do DatabaseManager que executa, incrementa a versão e envia o Heartbeat
-            if (dbManager.executeUpdate(finalSql)) {
-                System.out.println("[DB] Utilizador registado (via update): " + user.getEmail());
-                return true;
-            }
-            return false;
-        } finally {
-            dbManager.getWriteLock().unlock();
+        // [CORREÇÃO] Usa o método que executa, incrementa e notifica o cluster
+        if (dbManager.executeUpdateByClient(finalSql)) {
+            System.out.println("[DB] Utilizador registado (via update): " + user.getEmail());
+            return true;
         }
+        return false;
     }
 
     public boolean validateTeacherCode(String teacherCode) {
@@ -65,20 +57,11 @@ public class QueryPerformer {
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
             ResultSet rs = pstmt.executeQuery();
-
-            if (!rs.next()) {
-                System.err.println("[DB] ERRO: config.id=1 não encontrado.");
-                return false;
-            }
+            if (!rs.next()) return false;
 
             String storedHash = rs.getString("teacher_hash");
-            if (storedHash == null || storedHash.isEmpty()) {
-                System.err.println("[DB] ERRO: teacher_hash não está definido na BD.");
-                return false;
-            }
+            if (storedHash == null || storedHash.isEmpty()) return false;
 
-            // Gerar hash do código introduzido
-            // Nota: hashCode deve ser refatorado para ser estático e não depender da instância dbManager.
             String inputHash = DatabaseManager.hashCode(teacherCode);
 
             return inputHash.equals(storedHash);
@@ -92,13 +75,12 @@ public class QueryPerformer {
     }
 
     public User getUser(String email) {
-        // Tenta procurar nas duas tabelas
+        // ... (lógica inalterada de leitura) ...
         String sqlStudent = "SELECT email, name, password, student_number FROM estudante WHERE email = ?";
         String sqlTeacher = "SELECT email, name, password, extra FROM docente WHERE email = ?";
 
         dbManager.getReadLock().lock();
         try (Connection conn = dbManager.getConnection()) {
-
             // 1. Verifica Estudante
             try (PreparedStatement pstmt = conn.prepareStatement(sqlStudent)) {
                 pstmt.setString(1, email);
@@ -118,7 +100,6 @@ public class QueryPerformer {
                 pstmt.setString(1, email);
                 ResultSet rs = pstmt.executeQuery();
                 if (rs.next()) {
-                    // Mapeia o campo 'extra' para o ID/código do Teacher, dependendo da sua classe Teacher
                     return new Teacher(
                             rs.getString("name"),
                             rs.getString("email"),
@@ -127,13 +108,12 @@ public class QueryPerformer {
                     );
                 }
             }
-
         } catch (SQLException e) {
             System.err.println("[DB] Erro ao obter user: " + e.getMessage());
         } finally {
             dbManager.getReadLock().unlock();
         }
-        return null; // Não encontrado
+        return null;
     }
 
     public RoleType authenticate(String email, String password) {
@@ -148,19 +128,21 @@ public class QueryPerformer {
     public boolean saveQuestion(Question q) {
         String sqlQuestion = String.format(
                 "INSERT INTO pergunta (code, text, start_time, end_time, docente_email) VALUES ('%s', '%s', %s, %s, '%s')",
-                q.getId(), // <--- O código de 6 dígitos
+                q.getId(),
                 q.getQuestion().replace("'", "''"),
                 q.getStartTime() != null ? "'" + q.getStartTime().format(DATETIME_FORMATTER) + "'" : "NULL",
                 q.getEndTime() != null ? "'" + q.getEndTime().format(DATETIME_FORMATTER) + "'" : "NULL",
                 q.getTeacherId() != null ? q.getTeacherId() : "unknown@isec.pt"
         );
+        String finalReplicaSql = "";
 
         dbManager.getWriteLock().lock();
         try (Connection conn = dbManager.getConnection()) {
-            conn.setAutoCommit(false);
+            conn.setAutoCommit(false); // Inicia a transação
 
             int questionId = -1;
 
+            // 1. Inserção da Pergunta
             try (Statement stmt = conn.createStatement()) {
                 stmt.executeUpdate(sqlQuestion, Statement.RETURN_GENERATED_KEYS);
 
@@ -170,25 +152,47 @@ public class QueryPerformer {
 
             if (questionId == -1) throw new SQLException("Falha ao gerar ID da pergunta.");
 
+            // 2. Inserção das Opções (usando transação e batch)
             String sqlOption = "INSERT INTO opcao (text, is_correct, pergunta_id) VALUES (?, ?, ?)";
+            StringBuilder replicaBuilder = new StringBuilder();
+
+            // Inicia a string replicável com a query da pergunta
+            replicaBuilder.append(sqlQuestion).append(";");
+
             try (PreparedStatement pstmt = conn.prepareStatement(sqlOption)) {
                 for (String optText : q.getOptions()) {
                     pstmt.setString(1, optText);
                     pstmt.setBoolean(2, optText.equals(q.getCorrectOption()));
                     pstmt.setLong(3, questionId);
                     pstmt.addBatch();
+
+                    // Adiciona a query da opção à string replicável
+                    // Usa subconsulta (SELECT MAX(id) FROM pergunta) para o secundário encontrar o ID gerado
+                    String optReplica = String.format(
+                            "INSERT INTO opcao (text, is_correct, pergunta_id) VALUES ('%s', %s, (SELECT MAX(id) FROM pergunta WHERE code='%s'))",
+                            optText.replace("'", "''"),
+                            optText.equals(q.getCorrectOption()) ? "1" : "0",
+                            q.getId()
+                    );
+                    replicaBuilder.append(optReplica).append(";");
                 }
                 pstmt.executeBatch();
             }
 
+            // 3. Commit da Transação
             conn.commit();
-            dbManager.incrementDbVersion(sqlQuestion);
-            System.out.println("[DB] Pergunta gravada. ID: " + questionId);
+            finalReplicaSql = replicaBuilder.toString();
+
+            // 4. [CORREÇÃO] Notifica o Heartbeat Manager
+            dbManager.notifyUpdateAfterTransaction(finalReplicaSql);
+
+            System.out.println("[DB] Pergunta gravada e notificada. ID: " + questionId);
             return true;
 
         } catch (SQLException e) {
+            // Lógica de Rollback
             try (Connection conn = dbManager.getConnection()) {
-                conn.rollback();
+                if (conn != null) conn.rollback();
             } catch (SQLException rollbackE) {
                 System.err.println("[DB] Erro ao fazer rollback: " + rollbackE.getMessage());
             }
@@ -202,22 +206,26 @@ public class QueryPerformer {
     public boolean submitAnswer(String studentEmail, String code, int optionIndex) {
         String sqlGetId = "SELECT id FROM pergunta WHERE code = ?";
         String sqlGetOptions = "SELECT id, is_correct FROM opcao WHERE pergunta_id = ? ORDER BY id ASC";
+        String replicaSql = null;
+        boolean isCorrect = false;
 
         dbManager.getWriteLock().lock();
         try (Connection conn = dbManager.getConnection()) {
+            conn.setAutoCommit(false); // Inicia a transação
+
+            // ... (lógica para obter questionId e optionId) ...
+            long questionId = -1;
+            long optionId = -1;
 
             // Obter ID da Pergunta
-            long questionId = -1;
             try (PreparedStatement pstmt = conn.prepareStatement(sqlGetId)) {
                 pstmt.setString(1, code);
                 ResultSet rs = pstmt.executeQuery();
                 if (rs.next()) questionId = rs.getLong("id");
             }
-            if (questionId == -1) return false;
+            if (questionId == -1) { conn.rollback(); return false; }
 
             // Obter ID da Opção e Verificar se é Correta
-            long optionId = -1;
-            boolean isCorrect = false;
             try (PreparedStatement pstmt = conn.prepareStatement(sqlGetOptions)) {
                 pstmt.setLong(1, questionId);
                 ResultSet rs = pstmt.executeQuery();
@@ -231,8 +239,10 @@ public class QueryPerformer {
                     currentIdx++;
                 }
             }
-            if (optionId == -1) return false;
+            if (optionId == -1) { conn.rollback(); return false; }
 
+
+            // 1. Execução da Inserção (dentro da transação)
             String insertSql = "INSERT OR IGNORE INTO resposta (estudante_email, pergunta_id, opcao_id) VALUES (?, ?, ?)";
             try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
                 pstmt.setString(1, studentEmail);
@@ -241,15 +251,26 @@ public class QueryPerformer {
                 pstmt.executeUpdate();
             }
 
-            // 4. Replicar
-            String replicaSql = String.format("INSERT OR IGNORE INTO resposta (estudante_email, pergunta_id, opcao_id) VALUES ('%s', %d, %d)",
-                    studentEmail, questionId, optionId);
-            dbManager.incrementDbVersion(replicaSql);
+            // 2. Commit da transação
+            conn.commit();
 
-            System.out.println("[DB] Resposta de " + studentEmail + " (Correta: " + isCorrect + ")");
-            return isCorrect; // Retorna se acertou para a UI mostrar verde/vermelho
+            // 3. Constrói a Query Replicável (Após o commit)
+            replicaSql = String.format("INSERT OR IGNORE INTO resposta (estudante_email, pergunta_id, opcao_id) VALUES ('%s', %d, %d)",
+                    studentEmail, questionId, optionId);
+
+            // 4. [CORREÇÃO] Notifica o Heartbeat Manager
+            dbManager.notifyUpdateAfterTransaction(replicaSql);
+
+            System.out.println("[DB] Resposta submetida e notificada de " + studentEmail);
+            return isCorrect;
 
         } catch (SQLException e) {
+            // Lógica de Rollback
+            try (Connection conn = dbManager.getConnection()) {
+                if (conn != null) conn.rollback();
+            } catch (SQLException rollbackE) {
+                System.err.println("[DB] Erro ao fazer rollback: " + rollbackE.getMessage());
+            }
             System.err.println("[DB] Erro submitAnswer: " + e.getMessage());
             return false;
         } finally {
@@ -257,8 +278,11 @@ public class QueryPerformer {
         }
     }
 
-    // Histórico do Aluno
+    // --- (Restante código de leitura inalterado) ---
+
+    // Histórico do Aluno (Leitura)
     public List<ClientAPI.HistoryItem> getStudentHistory(String email) {
+        // ... (código inalterado) ...
         List<ClientAPI.HistoryItem> history = new ArrayList<>();
         String sql = """
             SELECT p.text, p.end_time, o.is_correct
@@ -281,12 +305,12 @@ public class QueryPerformer {
                 String dateStr = rs.getString("end_time");
                 boolean correct = rs.getBoolean("is_correct");
 
-                LocalDate date = null;
+                LocalDateTime dateTime = null;
                 if (dateStr != null) {
-                    date = LocalDateTime.parse(dateStr, DATETIME_FORMATTER).toLocalDate();
+                    dateTime = LocalDateTime.parse(dateStr, DATETIME_FORMATTER);
                 }
 
-                history.add(new ClientAPI.HistoryItem(qText, date, correct));
+                history.add(new ClientAPI.HistoryItem(qText, dateTime != null ? dateTime.toLocalDate() : null, correct));
             }
         } catch (SQLException e) {
             System.err.println("[DB] Erro history: " + e.getMessage());
@@ -297,7 +321,7 @@ public class QueryPerformer {
     }
 
     public TeacherResultsData getQuestionResults(String questionCode) {
-        // 1. pergunta e opções
+        // ... (código inalterado) ...
         Question q = getQuestionByCode(questionCode);
         if (q == null) return null;
 
@@ -364,8 +388,9 @@ public class QueryPerformer {
         );
     }
 
-    // VALIDAR CÓDIGO DA PERGUNTA
+    // VALIDAR CÓDIGO DA PERGUNTA (Leitura)
     public String validateQuestionCode(String code) {
+        // ... (código inalterado) ...
         String sql = "SELECT start_time, end_time FROM pergunta WHERE code = ?";
 
         dbManager.getReadLock().lock();
@@ -375,14 +400,12 @@ public class QueryPerformer {
             pstmt.setString(1, code);
             ResultSet rs = pstmt.executeQuery();
 
-            if (!rs.next()) {
-                return "INVALID"; // Código não existe
-            }
+            if (!rs.next()) return "INVALID";
 
             String startStr = rs.getString("start_time");
             String endStr = rs.getString("end_time");
 
-            if (startStr == null || endStr == null) return "VALID"; // Assumir válido se sem datas (ou tratar como erro)
+            if (startStr == null || endStr == null) return "VALID";
 
             LocalDateTime start = LocalDateTime.parse(startStr, DATETIME_FORMATTER);
             LocalDateTime end = LocalDateTime.parse(endStr, DATETIME_FORMATTER);
@@ -401,8 +424,9 @@ public class QueryPerformer {
         }
     }
 
-    // OBTER PERGUNTA PELO CÓDIGO (Para o Aluno ver)
+    // OBTER PERGUNTA PELO CÓDIGO (Leitura)
     public Question getQuestionByCode(String code) {
+        // ... (código inalterado) ...
         String sqlQuestion = "SELECT id, text, start_time, end_time, docente_email FROM pergunta WHERE code = ?";
         String sqlOptions = "SELECT text, is_correct FROM opcao WHERE pergunta_id = ? ORDER BY id ASC";
 
@@ -430,7 +454,7 @@ public class QueryPerformer {
                 }
             }
 
-            if (questionId == -1) return null; // Não encontrou
+            if (questionId == -1) return null;
 
             // Passo B: Buscar Opções
             List<String> optionsList = new ArrayList<>();
@@ -444,14 +468,12 @@ public class QueryPerformer {
                     optionsList.add(rs.getString("text"));
                     boolean isCorrect = rs.getBoolean("is_correct");
                     if (isCorrect) {
-                        // Converte índice 0->a, 1->b, etc.
                         correctOption = String.valueOf((char) ('a' + index));
                     }
                     index++;
                 }
             }
 
-            // Construir o objeto (Nota: usamos um array vazio se null)
             return new Question(
                     text,
                     correctOption,
@@ -470,9 +492,9 @@ public class QueryPerformer {
     }
 
     public List<Question> getTeacherQuestions(String teacherEmail) {
+        // ... (código inalterado) ...
         List<Question> list = new ArrayList<>();
 
-        // Query: Seleciona a pergunta e conta as respostas associadas
         String sql = """
             SELECT p.id, p.code, p.text, p.start_time, p.end_time, p.docente_email, 
                    (SELECT COUNT(*) FROM resposta r WHERE r.pergunta_id = p.id) as total_respostas
@@ -492,7 +514,7 @@ public class QueryPerformer {
 
             while (rs.next()) {
                 long idDb = rs.getLong("id");
-                String code = rs.getString("code"); // O ID visível (6 dígitos)
+                String code = rs.getString("code");
                 String text = rs.getString("text");
                 String sTime = rs.getString("start_time");
                 String eTime = rs.getString("end_time");
@@ -530,5 +552,4 @@ public class QueryPerformer {
 
         return list;
     }
-
 }
