@@ -18,9 +18,9 @@ public class HeartbeatManager extends Thread {
     private final DatabaseManager dbManager;   // acesso à BD
     private final int heartbeatInterval;       // intervalo do sender
 
-    private final int primaryClientTcpPort;    // porto TCP primary (recebido da diretoria)
-    private final int primaryDBTcpPort;        // porto DB primary (recebido da diretoria)
-    private final InetAddress primaryAddress;  // IP primary (mas não usado na comparação)
+    private int primaryClientTcpPort;    // porto TCP primary (recebido da diretoria)
+    private int primaryDBTcpPort;        // porto DB primary (recebido da diretoria)
+    private InetAddress primaryAddress;  // IP primary (mas não usado na comparação)
     private final ServerService serverService; // Para iniciar o shutdown em caso de erro
 
     private volatile boolean running = true;
@@ -217,6 +217,14 @@ public class HeartbeatManager extends Thread {
         } catch (Exception e) {
             if (running) System.err.println("[HB Multi] Erro no receiver: " + e.getMessage());
         }
+    }
+
+    public synchronized void updatePrimary(InetAddress ip, int clientPort, int dbPort) {
+        // Estas variáveis devem ser 'volatile' e não 'final'
+        this.primaryAddress = ip;
+        this.primaryClientTcpPort = clientPort;
+        this.primaryDBTcpPort = dbPort;
+        System.out.printf("[HB] Primary atualizado para: %s:%d%n", ip.getHostAddress(), clientPort);
     }
 
     // Shutdown único para parar as 2 threads

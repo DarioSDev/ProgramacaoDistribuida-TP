@@ -91,7 +91,6 @@ public class ServerService {
             startDbSyncListener();
 
             multicastReceiverSocket = startMulticastReceiver();
-            //multicastSenderSocket = startMulticastHeartbeat();
 
             System.out.println("[Server] Servidor iniciado.");
             if (isPrimary) {
@@ -350,16 +349,24 @@ public class ServerService {
                     this.primaryTcpClientPort = newPrimaryTcpPort;
                     this.primaryDbPort = newPrimaryDbPort;
 
+                    // 🛑 AÇÃO CORRETIVA: Propagar a informação atualizada ao HeartbeatManager
+                    // para que a thread multicast (listenAllHeartbeats) possa classificar o Primary.
+                    if (this.heartbeatManager != null) {
+                        this.heartbeatManager.updatePrimary(newPrimaryIp, newPrimaryTcpPort, newPrimaryDbPort);
+                    }
+
+
                     if (this.isPrimary && !wasPrimary) {
                         System.out.println("[Server] PROMOVIDO A PRINCIPAL!");
 
-                        // 🛑 CORREÇÃO AQUI: Inicializar QueryPerformer quando promovido
-                        // O dbManager já foi criado no arranque (durante o downloadDatabaseFromPrimary)
+                        // 🛑 Inicializar QueryPerformer quando promovido
                         if (this.dbManager != null) {
                             this.queryPerformer = new QueryPerformer(dbManager);
                             System.out.println("[Server] QueryPerformer inicializado para modo PRINCIPAL.");
+                            // Adicionar a lógica do dbManager para saber que é Primary
+                            // Assumindo que o DatabaseManager tem um setter para o estado Primary
+                            // this.dbManager.setIsPrimary(true);
                         } else {
-                            // Esta situação é improvável se o download tiver sucesso.
                             System.err.println("[Server] ERRO FATAL: dbManager é nulo após promoção.");
                             initiateShutdown();
                         }
