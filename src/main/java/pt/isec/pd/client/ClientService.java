@@ -1,5 +1,6 @@
 package pt.isec.pd.client;
 
+import javafx.application.Platform;
 import pt.isec.pd.common.*;
 
 import java.io.*;
@@ -12,7 +13,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class ClientService implements ClientAPI {
-    private static final long RETRY_DELAY_MS = 20000; // 20 segundos
+    private static final long RECONN_DELAY_MS = 20000; // 20 segundos
     private static final int CONNECTION_TIMEOUT_MS = 5000;
 
     private final String directoryHost;
@@ -26,10 +27,7 @@ public class ClientService implements ClientAPI {
     private ObjectInputStream in = null;
 
     private volatile boolean running = true;
-
-    // controla se já houve alguma ligação com sucesso (para saber se estamos em reconexão)
-    private boolean hasEverConnected = false;
-    private boolean lastConnectionFailed = false;
+    private volatile boolean isAuthenticated = false;
 
     private final Object lock = new Object();
     private Object syncResponse = null;
@@ -43,18 +41,17 @@ public class ClientService implements ClientAPI {
     public void start() {
         System.out.println("[Client] Iniciando cliente REAL (Object Streams)...");
 
+        if (!tryConnectAndAuthenticate(false)) {
+            System.err.println("[Client] Falha na ligação inicial. A terminar.");
+            closeResources();
+            return;
+        }
+
         while (running) {
+            // Se a ligação caiu, tenta reconectar com lógica de failover (isReconnect = true)
             if (activeSocket == null || activeSocket.isClosed()) {
-
-                // Se já estivemos ligados e a última ligação caiu, espera 20s antes de tentar reconectar
-                if (hasEverConnected && lastConnectionFailed) {
-                    System.out.println("[Client] Conexão ao servidor perdida. Aguardando 20s antes de tentar reconectar...");
-                    sleep(RETRY_DELAY_MS);
-                    lastConnectionFailed = false; // para não ficar sempre a dormir
-                }
-
-                if (!tryConnectAndAuthenticate()) {
-                    System.err.println("[Client] Falha crítica. A terminar cliente.");
+                if (!tryConnectAndAuthenticate(true)) {
+                    System.err.println("[Client] Falha crítica na reconexão. A terminar cliente.");
                     break;
                 }
             }
@@ -66,46 +63,73 @@ public class ClientService implements ClientAPI {
         System.out.println("[Client] Cliente REAL encerrado.");
     }
 
-    /**
-     * Tenta ligar ao servidor principal seguindo o flow:
-     * - Pergunta à diretoria qual é o primary
-     * - Tenta ligação TCP
-     * - Se falhar / não houver servidor → espera 20s e repete
-     * - Máximo 3 tentativas (1 imediata + 2 com espera de 20s). Se falhar, devolve false.
-     */
-    private boolean tryConnectAndAuthenticate() {
-        for (int attempt = 1; attempt <= 3 && running; attempt++) {
+    private boolean tryConnectAndAuthenticate(boolean isReconnect) {
+        String oldIp = currentServerIp;
+        int oldPort = currentServerPort;
+        int attempts = isReconnect ? 2 : 1; // 1 tentativa para arranque, 2 para reconexão ao mesmo Primary
 
-            String[] info = requestActiveServer();
+        for (int attempt = 1; attempt <= attempts && running; attempt++) {
+
+            String[] info = requestActiveServer(); // Pede ao Directory o Primary atual
 
             if (info == null) {
-                System.err.printf("[Client] Diretoria não devolveu servidor (tentativa %d/3).%n", attempt);
-            } else {
-                String ip = info[0];
-                int port = Integer.parseInt(info[1]);
-                System.out.printf("[Client] Tentativa %d/3 de ligação ao PRIMARY %s:%d%n", attempt, ip, port);
+                // Requisito: Se falhar na localização do Primary no arranque/reconexão, termina (a menos que seja o 20s delay)
+                if (!isReconnect) {
+                    return false;
+                } else if (attempt == attempts && oldPort == currentServerPort) {
+                    return false; // Última tentativa ao mesmo Primary
+                }
+                // No modo reconexão, se o Directory falhar temporariamente, damos 20s de tolerância.
+                System.out.println("[Client] Diretoria indisponível. Aguardando 20s...");
+                sleep(RECONN_DELAY_MS);
+                continue;
+            }
 
-                if (attemptTcpConnection(ip, port)) {
-                    System.out.println("[Client] Ligação ao PRIMARY estabelecida ✅");
-                    currentServerIp = ip;
-                    currentServerPort = port;
-                    hasEverConnected = true;
-                    lastConnectionFailed = false;
+            String newIp = info[0];
+            int newPort = Integer.parseInt(info[1]);
+
+            boolean isSamePrimary = (oldPort == newPort && oldIp != null && oldIp.equals(newIp));
+
+            // Cenário 1: Primary diferente (Reconexão Imediata - B)
+            if (isReconnect && !isSamePrimary) {
+                System.out.printf("[Client] Primary mudou para %s:%d. A tentar reconexão imediata...%n", newIp, newPort);
+                if (attemptTcpConnection(newIp, newPort)) {
+                    currentServerIp = newIp;
+                    currentServerPort = newPort;
                     return true;
                 } else {
-                    System.err.println("[Client] Ligação TCP ao PRIMARY falhou ❌");
+                    // Requisito: Se falhar na ligação/autenticação ao novo Primary, termina.
+                    running = false;
+                    return false;
                 }
             }
 
-            if (attempt < 3) {
-                System.out.println("[Client] Aguardando 20s antes da próxima tentativa...");
-                sleep(RETRY_DELAY_MS);
+            // Cenário 2: Primary igual ou Arranque Inicial
+            System.out.printf("[Client] Tentativa %d/%d de ligação ao Primary %s:%d%n", attempt, attempts, newIp, newPort);
+
+            if (attemptTcpConnection(newIp, newPort)) {
+                currentServerIp = newIp;
+                currentServerPort = newPort;
+                return true;
+            } else {
+                System.err.println("[Client] Ligação TCP ao Primary falhou ❌");
+
+                // Requisito C/D: Se falhar e for o mesmo Primary, deve tentar apenas mais uma vez após 20s.
+                if (isReconnect && isSamePrimary && attempt == 1) {
+                    System.out.println("[Client] Primary inativo! Aguardando 20s para tentar novamente...");
+                    sleep(RECONN_DELAY_MS); // Espera 20s antes da tentativa 2 (a última)
+                } else if (isReconnect && isSamePrimary && attempt == 2) {
+                    // Última falha ao mesmo Primary.
+                    running = false;
+                    return false;
+                } else if (!isReconnect) {
+                    // Falha na tentativa de arranque inicial (apenas 1 tentativa)
+                    running = false;
+                    return false;
+                }
             }
         }
-
-        System.err.println("[Client] Todas as tentativas de ligação ao servidor falharam ❌. Cliente vai morrer.");
-        running = false;
-        return false;
+        return false; // Nunca deve chegar aqui se o loop estiver bem gerido
     }
 
     private boolean attemptTcpConnection(String ip, int port) {
@@ -136,6 +160,7 @@ public class ClientService implements ClientAPI {
     }
 
     private void listenAndMaintainSession() {
+        boolean lastConnectionFailed = false;
         try {
             if (activeSocket == null || activeSocket.isClosed()) {
                 return;
@@ -167,10 +192,30 @@ public class ClientService implements ClientAPI {
         } catch (EOFException e) {
             System.out.println("[Client] Servidor fechou a ligação.");
             lastConnectionFailed = true;
-
+            if (!this.isAuthenticated) {
+                System.err.println("[Client] Ligação encerrada antes da autenticação. A terminar aplicação.");
+                running = false;
+                Platform.runLater(() -> {
+                    Platform.exit();
+                    System.exit(0);
+                });
+            } else {
+                lastConnectionFailed = true;
+                this.isAuthenticated = false;
+            }
         } catch (IOException | ClassNotFoundException e) {
             System.err.println("[Client] Conexão perdida: " + e.getMessage());
-            lastConnectionFailed = true;
+            if (!this.isAuthenticated) {
+                System.err.println("[Client] Ligação perdida antes da autenticação. A terminar aplicação.");
+                running = false;
+                Platform.runLater(() -> {
+                    Platform.exit();
+                    System.exit(0);
+                });
+            } else {
+                lastConnectionFailed = true;
+                this.isAuthenticated = false;
+            }
 
             synchronized (lock) {
                 syncResponse = null;
@@ -237,12 +282,14 @@ public class ClientService implements ClientAPI {
                 lock.wait(5000);
 
                 if (syncResponse instanceof Message responseMsg && responseMsg.getData() instanceof User u) {
+                    this.isAuthenticated = true;
                     String role = u.getRole() != null ? u.getRole() : "student";
                     String name = u.getName() != null ? u.getName() : email;
                     String extra = u.getExtra() != null ? u.getExtra() : "";
                     return "OK;" + role + ";" + name + ";" + extra;
                 }
 
+                this.isAuthenticated = false;
                 return "LOGIN_FAILED";
 
             } catch (InterruptedException e) {

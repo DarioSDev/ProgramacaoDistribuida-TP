@@ -15,6 +15,7 @@ public class ServerService {
     private static final int MULTICAST_PORT = 3030;
     private static final int HEARTBEAT_INTERVAL_MS = 5000;
     private static final int DIRECTORY_TIMEOUT_MS = 26000;
+    private static final int NO_AUTH_TIMEOUT_MS = 30000;
 
     private final String directoryHost;
     private final int directoryPort;
@@ -416,28 +417,61 @@ public class ServerService {
         ObjectOutputStream out = null;
 
         try {
+            // 1. Define o timeout de 30 segundos (NO_AUTH_TIMEOUT_MS) para a primeira leitura (credenciais).
+            client.setSoTimeout(NO_AUTH_TIMEOUT_MS);
+
             out = new ObjectOutputStream(client.getOutputStream());
             out.flush();
             in = new ObjectInputStream(client.getInputStream());
 
             System.out.println("[Server] Cliente conectado: " + client.getRemoteSocketAddress());
 
+            // Envia mensagem de boas-vindas
             out.writeObject(new Message(Command.CONNECTION, "BEM-VINDO AO SERVIDOR PD"));
             out.flush();
 
-            Object obj;
-            while ((obj = in.readObject()) != null) {
-                if (!(obj instanceof Message)) {
-                    System.out.println("[Server] Recebido object não-Message: " + obj);
-                    continue;
+            // 2. Tenta ler a primeira mensagem (LOGIN ou REGISTER).
+            // Se o cliente demorar mais de 30s, lança SocketTimeoutException.
+            Object obj = in.readObject();
+
+            // 3. Se a primeira leitura foi bem-sucedida, remove o timeout para o resto da sessão
+            client.setSoTimeout(0);
+
+            // Variável para a mensagem lida
+            Message msg;
+
+            // 4. Inicia o loop de processamento (processa a primeira mensagem e depois continua a ler)
+            // Usa um loop "do-while" ou trata a primeira mensagem fora do loop para evitar duplicação.
+            // A forma mais limpa é tratar a primeira mensagem (obj) fora do loop e depois entrar no 'while'.
+
+            if (!(obj instanceof Message)) {
+                System.out.println("[Server] Recebido objeto não-Message como primeira mensagem: " + obj);
+                return; // Termina se o formato for inválido.
+            }
+            msg = (Message) obj;
+
+            // Varinável de controlo para a primeira mensagem
+            boolean isFirstMessage = true;
+
+            do {
+                // Se não for a primeira mensagem, tenta ler a próxima
+                if (!isFirstMessage) {
+                    obj = in.readObject();
+                    if (obj == null) break;
+                    if (!(obj instanceof Message)) {
+                        System.out.println("[Server] Recebido objeto não-Message: " + obj);
+                        continue;
+                    }
+                    msg = (Message) obj;
+                } else {
+                    // Se for a primeira mensagem, já está em 'msg'
+                    isFirstMessage = false;
                 }
 
-                Message msg = (Message) obj;
                 System.out.println("[Server] Recebido: " + msg);
 
                 Command cmd = msg.getCommand();
                 Object data = msg.getData();
-
                 Message responseMsg = null;
 
                 try {
@@ -451,6 +485,8 @@ public class ServerService {
                                     u.setRole(role.name().toLowerCase());
                                     responseMsg = new Message(Command.LOGIN, u);
                                 } else {
+                                    // Se a autenticação falhar, a ligação permanece aberta para novas tentativas de login,
+                                    // mas o requisito de 30s já foi cumprido.
                                     responseMsg = new Message(Command.LOGIN, null);
                                 }
                             } else {
@@ -506,7 +542,6 @@ public class ServerService {
                         }
 
                         case SUBMIT_ANSWER -> {
-                            // O data é um array de objetos [email, code, index]
                             if (msg.getData() instanceof Object[] arr && arr.length == 3) {
                                 String email = (String) arr[0];
                                 String code = (String) arr[1];
@@ -524,7 +559,6 @@ public class ServerService {
                         case GET_TEACHER_QUESTIONS -> {
                             if (msg.getData() instanceof String email) {
                                 List<Question> list = queryPerformer.getTeacherQuestions(email);
-                                // Enviar Lista (ArrayList é Serializable)
                                 out.writeObject(new Message(Command.GET_TEACHER_QUESTIONS, new ArrayList<>(list)));
                                 out.flush();
                             }
@@ -563,8 +597,11 @@ public class ServerService {
                 }
 
                 if (cmd == Command.LOGOUT) break;
-            }
 
+            } while (true); // Loop infinito, interrompido por break/return
+
+        } catch (SocketTimeoutException e) {
+            System.err.println("[Server] Cliente excedeu " + NO_AUTH_TIMEOUT_MS + "ms para enviar credenciais. Fechando ligação.");
         } catch (EOFException e) {
             System.out.println("[Server] Cliente fechou a ligação: " + client.getRemoteSocketAddress());
         } catch (IOException | ClassNotFoundException e) {
