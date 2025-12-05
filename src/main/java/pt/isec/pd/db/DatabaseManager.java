@@ -1,12 +1,17 @@
 package pt.isec.pd.db;
 
+import pt.isec.pd.common.Command;
+import pt.isec.pd.common.Message;
 import pt.isec.pd.server.HeartbeatManager;
 
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 import java.io.File;
+import java.io.IOException;
+import java.io.ObjectOutputStream;
 import java.sql.*;
 import java.util.Base64;
+import java.util.List;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -18,6 +23,9 @@ public class DatabaseManager {
     private volatile boolean schemaReady = false;
     private HeartbeatManager heartbeatManager;
 
+    // Lista de OutputStreams de clientes para notificação assíncrona
+    private List<ObjectOutputStream> connectedClients;
+
     public DatabaseManager(String dbDirectory, String dbName) {
         this.dbPath = new File(dbDirectory, dbName).getAbsolutePath();
         this.dbLock = new ReentrantReadWriteLock();
@@ -27,6 +35,10 @@ public class DatabaseManager {
 
     public void setHeartbeatManager(HeartbeatManager heartbeatManager) {
         this.heartbeatManager = heartbeatManager;
+    }
+
+    public void setConnectedClients(List<ObjectOutputStream> clients) {
+        this.connectedClients = clients;
     }
 
     public void setDbFile(File dbFile) {
@@ -45,7 +57,6 @@ public class DatabaseManager {
     }
 
     Connection getConnection() throws SQLException {
-        // Garante que o driver SQLite é carregado
         try {
             Class.forName("org.sqlite.JDBC");
         } catch (ClassNotFoundException e) {
@@ -54,13 +65,12 @@ public class DatabaseManager {
         return DriverManager.getConnection("jdbc:sqlite:" + dbPath);
     }
 
-
     public void createSchema() {
         writeLock.lock();
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement()) {
 
-            // Criação das tabelas (mantida a estrutura original)
+            // Criação das tabelas (Estrutura original)
             stmt.execute("CREATE TABLE IF NOT EXISTS config (" +
                     "id INTEGER PRIMARY KEY CHECK (id = 1), " +
                     "version INTEGER NOT NULL DEFAULT 0, " +
@@ -71,7 +81,7 @@ public class DatabaseManager {
                     "name TEXT NOT NULL, " +
                     "password TEXT NOT NULL, " +
                     "extra TEXT)");
-
+            // ... (Criação de outras tabelas: estudante, pergunta, opcao, resposta) ...
             stmt.execute("CREATE TABLE IF NOT EXISTS estudante (" +
                     "email TEXT PRIMARY KEY, " +
                     "name TEXT NOT NULL, " +
@@ -103,18 +113,17 @@ public class DatabaseManager {
                     "FOREIGN KEY(pergunta_id) REFERENCES pergunta(id), " +
                     "FOREIGN KEY(opcao_id) REFERENCES opcao(id))");
 
-            // Inicialização da versão e teacher_hash
+
             stmt.execute("INSERT OR IGNORE INTO config (id, version, teacher_hash) VALUES (1, 0, NULL)");
 
+            // ... (Inicialização do teacher_hash) ...
             PreparedStatement ps = conn.prepareStatement("SELECT teacher_hash FROM config WHERE id = 1");
             ResultSet rs = ps.executeQuery();
-
             if (rs.next()) {
                 String current = rs.getString("teacher_hash");
                 if (current == null || current.isEmpty()) {
-                    String teacherCode = "p4Ssw0!3d"; // Código Hardcoded para o primeiro arranque
+                    String teacherCode = "p4Ssw0!3d";
                     String hashed = hashCode(teacherCode);
-
                     PreparedStatement upd = conn.prepareStatement(
                             "UPDATE config SET teacher_hash = ? WHERE id = 1"
                     );
@@ -150,22 +159,22 @@ public class DatabaseManager {
         }
     }
 
-    // Método auxiliar para incrementar a versão *apenas* localmente (usado por executeUpdateBySync)
+    // Método auxiliar: Incrementa a versão APENAS localmente
     private void incrementDbVersionLocalOnly() {
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement()) {
 
             stmt.executeUpdate("UPDATE config SET version = version + 1 WHERE id = 1");
-            // System.out.println("[DatabaseManager] Versão incrementada (LOCAL).");
+            System.out.println("[DatabaseManager] Versão incrementada.");
 
         } catch (SQLException e) {
-            System.err.println("[DatabaseManager] Erro ao incrementar versão (LOCAL): " + e.getMessage());
+            System.err.println("[DatabaseManager] Erro ao incrementar versão: " + e.getMessage());
         }
     }
 
     /**
      * Usado pelo Primary (Servidor Principal) para executar uma query iniciada por um cliente.
-     * Executa a query, incrementa a versão e notifica o cluster via Heartbeat com a query.
+     * Executa, incrementa, notifica o cluster (HB) e notifica os clientes (TCP).
      */
     public boolean executeUpdateByClient(String sql) {
         writeLock.lock();
@@ -174,12 +183,13 @@ public class DatabaseManager {
 
             stmt.executeUpdate(sql);
 
-            // 1. O Primary envia o heartbeat com a query e a nova versão
-            // Nota: O getDbVersion() ainda retorna a versão antiga, mas o HeartbeatManager
-            // deve enviar a versão que será aplicada APÓS o incremento.
+            // 1. O Primary envia o heartbeat para Secundários (com versão N+1)
             heartbeatManager.sendHeartbeat(sql);
 
-            // 2. Incrementa a versão na BD
+            // 2. Notifica Clientes TCP Conectados (Assíncrono)
+            notifyClientsOfUpdate(sql);
+
+            // 3. Incrementa a versão na BD
             incrementDbVersionLocalOnly();
 
             System.out.println("[DatabaseManager] Query CLIENTE executada e notificada. SQL: " + sql);
@@ -227,21 +237,43 @@ public class DatabaseManager {
      */
     public void notifyUpdateAfterTransaction(String replicableSql) {
         writeLock.lock();
-        try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement()) {
-
-            // 1. O Primary envia a query replicável
+        try {
+            // 1. O Primary envia o heartbeat para Secundários (com versão N+1)
             heartbeatManager.sendHeartbeat(replicableSql);
 
-            // 2. Incrementa a versão localmente
+            // 2. Notifica Clientes TCP Conectados (Assíncrono)
+            notifyClientsOfUpdate(replicableSql);
+
+            // 3. Incrementa a versão localmente
             incrementDbVersionLocalOnly();
 
             System.out.println("[DatabaseManager] Transação notificada e versão incrementada.");
 
-        } catch (SQLException e) {
+        } catch (Exception e) {
             System.err.println("[DatabaseManager] Erro ao incrementar versão (APÓS TRANSAÇÃO): " + e.getMessage());
         } finally {
             writeLock.unlock();
+        }
+    }
+
+    // Implementação da Notificação Assíncrona de Clientes TCP
+    private void notifyClientsOfUpdate(String replicableQuery) {
+        if (connectedClients != null && !connectedClients.isEmpty()) {
+            // NOTA: A mensagem deve ser mais sofisticada (ex: qual pergunta/utilizador mudou)
+            Message notification = new Message(Command.UPDATE_NOTIFICATION, replicableQuery);
+
+            // Executa a notificação numa thread separada para não bloquear a thread do cliente/escrita
+            new Thread(() -> {
+                for (ObjectOutputStream out : connectedClients) {
+                    try {
+                        out.writeObject(notification);
+                        out.flush();
+                    } catch (IOException e) {
+                        // O Servidor deve ter um mecanismo para remover este stream da lista global se a notificação falhar
+                        System.err.println("[DB] Falha ao notificar cliente. O stream será removido: " + e.getMessage());
+                    }
+                }
+            }, "Client-Notifier").start();
         }
     }
 

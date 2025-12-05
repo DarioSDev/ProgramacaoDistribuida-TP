@@ -1,10 +1,8 @@
 package pt.isec.pd.server;
-
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.common.*;
 import pt.isec.pd.db.DatabaseManager;
 import pt.isec.pd.db.QueryPerformer;
-
 import java.io.*;
 import java.net.*;
 import java.util.*;
@@ -28,21 +26,20 @@ public class ServerService {
     private int tcpClientPort = 0;
     private int tcpDbPort = 0;
     private int udpPort = 0;
-
     private int primaryTcpClientPort = -1;
     private int primaryDbPort = -1;
-
     private InetAddress primaryIp = null;
 
     private volatile boolean isPrimary = false;
     private volatile boolean running = true;
+
+    private final Map < Socket, ObjectOutputStream > clientOutputStreams = new ConcurrentHashMap < > ();
 
     private DatagramSocket udpSocket;
     private ServerSocket clientServerSocket;
     private ServerSocket dbServerSocket;
     private MulticastSocket multicastReceiverSocket;
     private MulticastSocket multicastSenderSocket;
-
     private HeartbeatManager heartbeatManager;
     private ExecutorService clientPool;
     private Thread directoryHeartbeatThread;
@@ -58,21 +55,17 @@ public class ServerService {
         try {
             udpSocket = new DatagramSocket();
             udpPort = udpSocket.getLocalPort();
-
             clientServerSocket = new ServerSocket(0);
             dbServerSocket = new ServerSocket(0);
             tcpClientPort = clientServerSocket.getLocalPort();
             tcpDbPort = dbServerSocket.getLocalPort();
-
             System.out.printf("[Server] Portos: UDP=%d, Cliente=%d, BD=%d%n", udpPort, tcpClientPort, tcpDbPort);
-
             if (!registerAndGetPrimary()) {
                 System.err.println("[Server] Falha no registo com o Directory. A terminar.");
                 return;
             }
 
             initializeDatabaseLogic();
-
             heartbeatManager = new HeartbeatManager(udpSocket,
                     directoryHost,
                     directoryPort,
@@ -84,24 +77,23 @@ public class ServerService {
                     primaryTcpClientPort,
                     primaryDbPort,
                     this);
+
             heartbeatManager.start();
             this.dbManager.setHeartbeatManager(this.heartbeatManager);
-
+            this.dbManager.setConnectedClients(new ArrayList < > (clientOutputStreams.values()));
             directoryHeartbeatThread = startDirectoryHeartbeatListener();
             startClientListener();
             startDbSyncListener();
-
             multicastReceiverSocket = startMulticastReceiver();
 
             System.out.println("[Server] Servidor iniciado.");
+
             if (isPrimary) {
                 System.out.println("[Server] Este é o servidor PRINCIPAL.");
             } else {
                 System.out.printf("[Server] Servidor backup. Primary: %s:%d%n", primaryIp.getHostAddress(), primaryTcpClientPort);
             }
-
             new Scanner(System.in).nextLine();
-
         } catch (IOException e) {
             System.err.println("[Server] Erro fatal: " + e.getMessage());
         } finally {
@@ -118,7 +110,6 @@ public class ServerService {
     }
 
     private void initializeDatabaseLogic() {
-        dbDirectoryPath = dbDirectoryPath + "/" + this.tcpClientPort;
         File dir = new File(dbDirectoryPath);
         if (!dir.exists()) {
             System.out.println("[DB-INIT] Diretório não existe. A criar: " + dir.getAbsolutePath());
@@ -126,39 +117,37 @@ public class ServerService {
         } else {
             System.out.println("[DB-INIT] Diretório existe: " + dir.getAbsolutePath());
         }
-
         System.out.println("[DB-INIT] Diretório de BD: " + dir.getAbsolutePath());
         System.out.println("[DB-INIT] isPrimary = " + isPrimary);
-
         if (isPrimary) {
             File[] dbFiles = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".db"));
             File selectedFile;
-
             if (dbFiles == null || dbFiles.length == 0) {
-                System.out.println("[DB-INIT][PRIMARY] Nenhuma BD encontrada. Criando nova...");
-                selectedFile = new File(dir, "data.db");
+                // [REQUISITO] Se não houver BD, cria nova com versão 0.
+                // Sugestão para nomeação: usar timestamp + porto para evitar colisões
+                String newFileName = "data_" + this.tcpClientPort + "_" + System.currentTimeMillis() + ".db";
+                System.out.println("[DB-INIT][PRIMARY] Nenhuma BD encontrada. Criando nova: " + newFileName);
+                selectedFile = new File(dir, newFileName);
             } else {
                 System.out.println("[DB-INIT][PRIMARY] BDs encontradas:");
-                for (File f : dbFiles)
-                    System.out.println("   → " + f.getName() + " (size=" + f.length() + " bytes)");
-
+                for (File f: dbFiles)
+                    System.out.println(" → " + f.getName() + " (size=" + f.length() + " bytes)");
+                // [REQUISITO] Usa a BD com data de alteração mais recente.
                 Arrays.sort(dbFiles, Comparator.comparingLong(File::lastModified));
                 selectedFile = dbFiles[dbFiles.length - 1];
                 System.out.println("[DB-INIT][PRIMARY] Selecionada: " + selectedFile.getAbsolutePath());
             }
-
             this.dbManager = new DatabaseManager(dbDirectoryPath, selectedFile.getName());
             System.out.println("[DB-INIT][PRIMARY] A criar schema...");
             this.dbManager.createSchema();
             System.out.println("[DB-INIT][PRIMARY] Schema criado com sucesso!");
             System.out.println("[DB-INIT][PRIMARY] Versão BD: " + dbManager.getDbVersion());
-
             this.queryPerformer = new QueryPerformer(dbManager);
-
         } else {
             System.out.println("[DB-INIT][BACKUP] Modo backup. A aguardar sincronização...");
             if (!downloadDatabaseFromPrimary()) {
-                System.err.println("[DB-INIT][BACKUP] ERRO: Falha ao receber base de dados.");
+                // [REQUISITO] Se falhar, termina informando o diretório.
+                System.err.println("[DB-INIT][BACKUP] ERRO: Falha ao receber base de dados. A iniciar shutdown.");
                 shutdown();
                 System.exit(1);
             }
@@ -167,15 +156,13 @@ public class ServerService {
 
     private boolean registerAndGetPrimary() throws IOException {
         udpSocket.setSoTimeout(DIRECTORY_TIMEOUT_MS);
-
+        // [REQUISITO] Envia portos TCP automáticos.
         String msg = String.format("REGISTER %d %d %d", tcpClientPort, tcpDbPort, udpPort);
         byte[] buf = msg.getBytes();
         InetAddress dirAddr = InetAddress.getByName(directoryHost);
-
         DatagramPacket packet = new DatagramPacket(buf, buf.length, dirAddr, directoryPort);
         udpSocket.send(packet);
         System.out.println("[Server] Registo enviado: " + msg);
-
         byte[] recvBuf = new byte[256];
         DatagramPacket recv = new DatagramPacket(recvBuf, recvBuf.length);
         String response;
@@ -184,16 +171,12 @@ public class ServerService {
             udpSocket.receive(recv);
             response = new String(recv.getData(), 0, recv.getLength()).trim();
             System.out.println("[Server] Confirmação do Directory: " + response);
-
             String[] parts = response.split("\\s+");
-
             if (parts.length >= 4 && parts[0].equals("PRIMARY")) {
                 primaryIp = InetAddress.getByName(parts[1]);
                 primaryTcpClientPort = Integer.parseInt(parts[2]);
                 primaryDbPort = Integer.parseInt(parts[3]);
-
                 udpSocket.setSoTimeout(0);
-
                 isPrimary = (primaryTcpClientPort == tcpClientPort);
                 if (isPrimary) {
                     System.out.println("[Server] EU SOU O PRIMARY!");
@@ -202,47 +185,38 @@ public class ServerService {
                 }
                 return true;
             }
+            // [REQUISITO] Se a resposta não for PRIMARY (ou incompleta), termina.
             return false;
-
         } catch (SocketTimeoutException e) {
-            System.err.println("[Server] Timeout: Directory não respondeu.");
+            // [REQUISITO] Se não receber resposta, termina.
+            System.err.println("[Server] Timeout: Directory não respondeu. A terminar.");
             return false;
         }
     }
 
     private boolean downloadDatabaseFromPrimary() {
-        String newFileName = "data.db";
+        String newFileName = "data_" + this.tcpClientPort + "_" + System.currentTimeMillis() + ".db";
         File syncedFile = new File(dbDirectoryPath, newFileName);
-
         System.out.println("[SYNC][BACKUP] A tentar ligação ao primary para download:");
-        System.out.println("   IP   = " + primaryIp);
-        System.out.println("   PORT = " + primaryDbPort);
-        System.out.println("   File destino = " + syncedFile.getAbsolutePath());
-
+        System.out.println(" IP = " + primaryIp);
+        System.out.println(" PORT = " + primaryDbPort);
+        System.out.println(" File destino = " + syncedFile.getAbsolutePath());
         try (Socket socket = new Socket(primaryIp, primaryDbPort);
              InputStream in = socket.getInputStream();
              FileOutputStream fos = new FileOutputStream(syncedFile)) {
-
             socket.setSoTimeout(5000);
-
             byte[] buffer = new byte[8192];
             int read;
             long totalBytes = 0;
-
             while ((read = in.read(buffer)) != -1) {
                 fos.write(buffer, 0, read);
                 totalBytes += read;
             }
-
             System.out.println("[SYNC][BACKUP] Download concluído. Bytes recebidos = " + totalBytes);
-
             this.dbManager = new DatabaseManager(dbDirectoryPath, newFileName);
-
             System.out.println("[SYNC][BACKUP] BD recebida contém tabelas:");
-            System.out.println("   version = " + dbManager.getDbVersion());
-
+            System.out.println(" version = " + dbManager.getDbVersion());
             return true;
-
         } catch (IOException e) {
             System.err.println("[SYNC][BACKUP] ERRO: " + e.getMessage());
             if (syncedFile.exists()) {
@@ -253,53 +227,44 @@ public class ServerService {
         }
     }
 
-
     private void sendDatabase(Socket peer) {
         if (dbManager == null) {
             System.err.println("[SYNC][PRIMARY] ERRO: dbManager == null");
             return;
         }
-
         File dbFile = dbManager.getDbFile();
         if (!dbFile.exists()) {
             System.err.println("[SYNC][PRIMARY] ERRO: ficheiro de BD não existe! " + dbFile.getAbsolutePath());
             return;
         }
-
         System.out.println("[SYNC][PRIMARY] A enviar BD ao backup:");
-        System.out.println("   Ficheiro = " + dbFile.getAbsolutePath());
-        System.out.println("   Tamanho  = " + dbFile.length() + " bytes");
-
+        System.out.println(" Ficheiro = " + dbFile.getAbsolutePath());
+        System.out.println(" Tamanho = " + dbFile.length() + " bytes");
         if (!dbManager.isSchemaReady()) {
             System.err.println("[SYNC][PRIMARY] Schema ainda não está pronto! NÃO envio BD.");
             return;
         }
-
-        dbManager.getReadLock().lock();
+        dbManager.getWriteLock().lock();
         try {
             try (FileInputStream fis = new FileInputStream(dbFile);
                  OutputStream out = peer.getOutputStream()) {
-
                 byte[] buffer = new byte[8192];
                 int read;
                 long totalSent = 0;
-
                 while ((read = fis.read(buffer)) != -1) {
                     out.write(buffer, 0, read);
                     totalSent += read;
                 }
                 out.flush();
                 peer.shutdownOutput();
-
                 System.out.println("[SYNC][PRIMARY] Envio concluído. Total enviado = " + totalSent + " bytes");
             }
         } catch (IOException e) {
             System.err.println("[SYNC][PRIMARY] ERRO ao enviar: " + e.getMessage());
         } finally {
-            dbManager.getReadLock().unlock();
+            dbManager.getWriteLock().unlock();
         }
     }
-
 
     private Thread startDirectoryHeartbeatListener() {
         Thread listenerThread = new Thread(() -> {
@@ -310,7 +275,6 @@ public class ServerService {
                     udpSocket.setSoTimeout(DIRECTORY_TIMEOUT_MS);
                     udpSocket.receive(packet);
                     String msg = new String(packet.getData(), 0, packet.getLength()).trim();
-
                     if (msg.startsWith("PRIMARY")) {
                         processPrimaryUpdate(msg);
                     }
@@ -323,50 +287,36 @@ public class ServerService {
                 }
             }
         }, "Dir-Heartbeat-Listener");
-
         listenerThread.start();
         return listenerThread;
     }
 
     private void processPrimaryUpdate(String response) {
-        synchronized (this) {
+        synchronized(this) {
             try {
                 String[] parts = response.split("\\s+");
-
                 if (parts.length >= 4 && parts[0].equals("PRIMARY")) {
                     InetAddress newPrimaryIp = InetAddress.getByName(parts[1]);
                     int newPrimaryTcpPort = Integer.parseInt(parts[2]);
                     int newPrimaryDbPort = Integer.parseInt(parts[3]);
-
                     boolean wasPrimary = this.isPrimary;
-
                     if (newPrimaryTcpPort == tcpClientPort) {
                         this.isPrimary = true;
                     } else {
                         this.isPrimary = false;
                     }
-
                     this.primaryIp = newPrimaryIp;
                     this.primaryTcpClientPort = newPrimaryTcpPort;
                     this.primaryDbPort = newPrimaryDbPort;
-
-                    // 🛑 AÇÃO CORRETIVA: Propagar a informação atualizada ao HeartbeatManager
-                    // para que a thread multicast (listenAllHeartbeats) possa classificar o Primary.
+                    // AÇÃO CRÍTICA: Propagar a informação atualizada ao HeartbeatManager
                     if (this.heartbeatManager != null) {
                         this.heartbeatManager.updatePrimary(newPrimaryIp, newPrimaryTcpPort, newPrimaryDbPort);
                     }
-
-
                     if (this.isPrimary && !wasPrimary) {
                         System.out.println("[Server] PROMOVIDO A PRINCIPAL!");
-
-                        // 🛑 Inicializar QueryPerformer quando promovido
                         if (this.dbManager != null) {
                             this.queryPerformer = new QueryPerformer(dbManager);
                             System.out.println("[Server] QueryPerformer inicializado para modo PRINCIPAL.");
-                            // Adicionar a lógica do dbManager para saber que é Primary
-                            // Assumindo que o DatabaseManager tem um setter para o estado Primary
-                            // this.dbManager.setIsPrimary(true);
                         } else {
                             System.err.println("[Server] ERRO FATAL: dbManager é nulo após promoção.");
                             initiateShutdown();
@@ -382,6 +332,7 @@ public class ServerService {
     private void startClientListener() {
         clientPool = Executors.newFixedThreadPool(10);
         new Thread(() -> {
+            // [REQUISITO] Todos os servidores aguardam conexões de clientes
             System.out.println("[ClientListener] A aguardar conexões no porto " + tcpClientPort);
             while (running) {
                 try {
@@ -405,54 +356,46 @@ public class ServerService {
             out.flush();
             out.writeObject(new Message(Command.CONNECTION, "ERRO: Server is Backup mode. Connect to Primary."));
             out.flush();
-        } catch (IOException ignored) {}
-        finally {
-            try { if (out != null) out.close(); } catch (IOException ignored) {}
-            try { client.close(); } catch (IOException ignored) {}
+        } catch (IOException ignored) {} finally {
+            try {
+                if (out != null) out.close();
+            } catch (IOException ignored) {}
+            try {
+                client.close();
+            } catch (IOException ignored) {}
         }
     }
 
     private void handleClient(Socket client) {
         ObjectInputStream in = null;
         ObjectOutputStream out = null;
-
         try {
             // 1. Define o timeout de 30 segundos (NO_AUTH_TIMEOUT_MS) para a primeira leitura (credenciais).
             client.setSoTimeout(NO_AUTH_TIMEOUT_MS);
-
             out = new ObjectOutputStream(client.getOutputStream());
             out.flush();
             in = new ObjectInputStream(client.getInputStream());
-
             System.out.println("[Server] Cliente conectado: " + client.getRemoteSocketAddress());
-
             // Envia mensagem de boas-vindas
             out.writeObject(new Message(Command.CONNECTION, "BEM-VINDO AO SERVIDOR PD"));
             out.flush();
-
             // 2. Tenta ler a primeira mensagem (LOGIN ou REGISTER).
             // Se o cliente demorar mais de 30s, lança SocketTimeoutException.
             Object obj = in.readObject();
-
             // 3. Se a primeira leitura foi bem-sucedida, remove o timeout para o resto da sessão
             client.setSoTimeout(0);
-
             // Variável para a mensagem lida
             Message msg;
-
             // 4. Inicia o loop de processamento (processa a primeira mensagem e depois continua a ler)
             // Usa um loop "do-while" ou trata a primeira mensagem fora do loop para evitar duplicação.
             // A forma mais limpa é tratar a primeira mensagem (obj) fora do loop e depois entrar no 'while'.
-
             if (!(obj instanceof Message)) {
                 System.out.println("[Server] Recebido objeto não-Message como primeira mensagem: " + obj);
                 return; // Termina se o formato for inválido.
             }
             msg = (Message) obj;
-
             // Varinável de controlo para a primeira mensagem
             boolean isFirstMessage = true;
-
             do {
                 // Se não for a primeira mensagem, tenta ler a próxima
                 if (!isFirstMessage) {
@@ -467,13 +410,10 @@ public class ServerService {
                     // Se for a primeira mensagem, já está em 'msg'
                     isFirstMessage = false;
                 }
-
                 System.out.println("[Server] Recebido: " + msg);
-
                 Command cmd = msg.getCommand();
                 Object data = msg.getData();
                 Message responseMsg = null;
-
                 try {
                     switch (cmd) {
                         case LOGIN -> {
@@ -493,7 +433,6 @@ public class ServerService {
                                 responseMsg = new Message(Command.LOGIN, null);
                             }
                         }
-
                         case REGISTER_STUDENT, REGISTER_TEACHER -> {
                             if (data instanceof User newUser) {
                                 boolean ok = queryPerformer.registerUser(newUser);
@@ -502,7 +441,6 @@ public class ServerService {
                                 responseMsg = new Message(cmd, false);
                             }
                         }
-
                         case GET_USER_INFO -> {
                             if (data instanceof String email) {
                                 User u = queryPerformer.getUser(email);
@@ -511,7 +449,6 @@ public class ServerService {
                                 responseMsg = new Message(Command.GET_USER_INFO, null);
                             }
                         }
-
                         case CREATE_QUESTION -> {
                             if (data instanceof Question q) {
                                 boolean ok = queryPerformer.saveQuestion(q);
@@ -520,9 +457,7 @@ public class ServerService {
                                 responseMsg = new Message(Command.CREATE_QUESTION, false);
                             }
                         }
-
                         case LOGOUT -> responseMsg = new Message(Command.LOGOUT, "BYE");
-
                         case VALIDATE_QUESTION_CODE -> {
                             if (msg.getData() instanceof String code) {
                                 String result = queryPerformer.validateQuestionCode(code);
@@ -531,7 +466,6 @@ public class ServerService {
                                 out.flush();
                             }
                         }
-
                         case GET_QUESTION -> {
                             if (msg.getData() instanceof String code) {
                                 System.out.println("[Server] Pedido de dados da pergunta: " + code);
@@ -540,13 +474,11 @@ public class ServerService {
                                 out.flush();
                             }
                         }
-
                         case SUBMIT_ANSWER -> {
                             if (msg.getData() instanceof Object[] arr && arr.length == 3) {
                                 String email = (String) arr[0];
                                 String code = (String) arr[1];
                                 int index = (int) arr[2];
-
                                 boolean success = queryPerformer.submitAnswer(email, code, index);
                                 out.writeObject(new Message(Command.SUBMIT_ANSWER, success));
                                 out.flush();
@@ -555,23 +487,20 @@ public class ServerService {
                                 out.flush();
                             }
                         }
-
                         case GET_TEACHER_QUESTIONS -> {
                             if (msg.getData() instanceof String email) {
-                                List<Question> list = queryPerformer.getTeacherQuestions(email);
-                                out.writeObject(new Message(Command.GET_TEACHER_QUESTIONS, new ArrayList<>(list)));
+                                List < Question > list = queryPerformer.getTeacherQuestions(email);
+                                out.writeObject(new Message(Command.GET_TEACHER_QUESTIONS, new ArrayList < > (list)));
                                 out.flush();
                             }
                         }
-
                         case GET_STUDENT_HISTORY -> {
                             if (msg.getData() instanceof String email) {
-                                List<ClientAPI.HistoryItem> history = queryPerformer.getStudentHistory(email);
-                                out.writeObject(new Message(Command.GET_STUDENT_HISTORY, new ArrayList<>(history)));
+                                List < ClientAPI.HistoryItem > history = queryPerformer.getStudentHistory(email);
+                                out.writeObject(new Message(Command.GET_STUDENT_HISTORY, new ArrayList < > (history)));
                                 out.flush();
                             }
                         }
-
                         case GET_QUESTION_RESULTS -> {
                             if (msg.getData() instanceof String code) {
                                 TeacherResultsData results = queryPerformer.getQuestionResults(code);
@@ -579,14 +508,12 @@ public class ServerService {
                                 out.flush();
                             }
                         }
-
                         default -> responseMsg = new Message(cmd, "UNKNOWN_COMMAND");
                     }
                 } catch (Exception e) {
                     e.printStackTrace();
                     responseMsg = new Message(cmd, "SERVER_ERROR: " + e.getMessage());
                 }
-
                 // Enviar resposta
                 try {
                     out.writeObject(responseMsg);
@@ -595,11 +522,8 @@ public class ServerService {
                     System.err.println("[Server] Erro ao enviar resposta ao cliente: " + e.getMessage());
                     break;
                 }
-
                 if (cmd == Command.LOGOUT) break;
-
             } while (true); // Loop infinito, interrompido por break/return
-
         } catch (SocketTimeoutException e) {
             System.err.println("[Server] Cliente excedeu " + NO_AUTH_TIMEOUT_MS + "ms para enviar credenciais. Fechando ligação.");
         } catch (EOFException e) {
@@ -608,9 +532,15 @@ public class ServerService {
             System.err.println("[Server] Erro na conexão com cliente: " + e.getMessage());
         } finally {
             // Fechar recursos
-            try { if (in != null) in.close(); } catch (IOException ignored) {}
-            try { if (out != null) out.close(); } catch (IOException ignored) {}
-            try { client.close(); } catch (IOException ignored) {}
+            try {
+                if (in != null) in.close();
+            } catch (IOException ignored) {}
+            try {
+                if (out != null) out.close();
+            } catch (IOException ignored) {}
+            try {
+                client.close();
+            } catch (IOException ignored) {}
         }
     }
 
@@ -632,7 +562,6 @@ public class ServerService {
         MulticastSocket receiver = new MulticastSocket(8888);
         InetAddress group = InetAddress.getByName(multicastGroupIp);
         receiver.joinGroup(group);
-
         new Thread(() -> {
             byte[] buf = new byte[256];
             while (running) {
@@ -646,34 +575,8 @@ public class ServerService {
                 }
             }
         }, "Multicast-Receiver").start();
-
         return receiver;
     }
-
-//    private MulticastSocket startMulticastHeartbeat() throws IOException {
-//        MulticastSocket sender = new MulticastSocket();
-//        InetAddress group = InetAddress.getByName(MULTICAST_IP);
-//
-//        String msg = "HEARTBEAT " + tcpClientPort;
-//        byte[] buf = msg.getBytes();
-//
-//        new Thread(() -> {
-//            while (running) {
-//                try {
-//                    DatagramPacket packet = new DatagramPacket(buf, buf.length, group, MULTICAST_PORT);
-//                    sender.send(packet);
-//                    Thread.sleep(HEARTBEAT_INTERVAL_MS);
-//                } catch (InterruptedException e) {
-//                    Thread.currentThread().interrupt();
-//                    break;
-//                } catch (Exception e) {
-//                    if (running) System.err.println("[MulticastSender] Erro: " + e.getMessage());
-//                }
-//            }
-//        }, "Multicast-Sender").start();
-//
-//        return sender;
-//    }
 
     private void sendUnregister() {
         try {
@@ -691,27 +594,26 @@ public class ServerService {
     public void shutdown() {
         if (!running) return;
         running = false;
-
         System.out.println("\n[Server] A encerrar...");
-
         sendUnregister();
-
         if (heartbeatManager != null && heartbeatManager.isAlive()) {
             heartbeatManager.shutdown();
         }
-
         if (clientPool != null) {
             clientPool.shutdownNow();
         }
-
         if (directoryHeartbeatThread != null) {
             directoryHeartbeatThread.interrupt();
         }
-
-        try { if (udpSocket != null) udpSocket.close(); } catch (Exception ignored) {}
-        try { if (clientServerSocket != null) clientServerSocket.close(); } catch (Exception ignored) {}
-        try { if (dbServerSocket != null) dbServerSocket.close(); } catch (Exception ignored) {}
-
+        try {
+            if (udpSocket != null) udpSocket.close();
+        } catch (Exception ignored) {}
+        try {
+            if (clientServerSocket != null) clientServerSocket.close();
+        } catch (Exception ignored) {}
+        try {
+            if (dbServerSocket != null) dbServerSocket.close();
+        } catch (Exception ignored) {}
         try {
             if (multicastReceiverSocket != null) {
                 InetAddress group = InetAddress.getByName(multicastGroupIp);
@@ -719,8 +621,9 @@ public class ServerService {
                 multicastReceiverSocket.close();
             }
         } catch (Exception ignored) {}
-        try { if (multicastSenderSocket != null) multicastSenderSocket.close(); } catch (Exception ignored) {}
-
+        try {
+            if (multicastSenderSocket != null) multicastSenderSocket.close();
+        } catch (Exception ignored) {}
         System.out.println("[Server] Encerrado.");
     }
 }
