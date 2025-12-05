@@ -348,9 +348,68 @@ public class QueryPerformer {
         }
     }
 
+    public boolean deleteQuestion(String questionCode) {
+        dbManager.getWriteLock().lock();
+        Connection conn = null;
+        try {
+            conn = dbManager.getConnection();
+            conn.setAutoCommit(false);
+
+            // 1. Obter o ID interno (PK) usando o código
+            long internalId = -1;
+            try (PreparedStatement ps = conn.prepareStatement("SELECT id FROM pergunta WHERE code = ?")) {
+                ps.setString(1, questionCode);
+                ResultSet rs = ps.executeQuery();
+                if (rs.next()) internalId = rs.getLong("id");
+            }
+
+            if (internalId == -1) {
+                conn.rollback();
+                return false; // Pergunta não encontrada
+            }
+
+            // 2. Apagar Respostas associadas (Integridade Referencial)
+            try (PreparedStatement ps = conn.prepareStatement("DELETE FROM resposta WHERE pergunta_id = ?")) {
+                ps.setLong(1, internalId);
+                ps.executeUpdate();
+            }
+
+            // 3. Apagar a Pergunta
+            try (PreparedStatement ps = conn.prepareStatement("DELETE FROM pergunta WHERE id = ?")) {
+                ps.setLong(1, internalId);
+                ps.executeUpdate();
+            }
+
+            conn.commit();
+
+            String sqlDelRespostas = String.format(
+                    "DELETE FROM resposta WHERE pergunta_id = (SELECT id FROM pergunta WHERE code = '%s')",
+                    questionCode
+            );
+
+            String sqlDelPergunta = String.format(
+                    "DELETE FROM pergunta WHERE code = '%s'",
+                    questionCode
+            );
+
+            dbManager.notifyUpdateAfterTransaction(sqlDelRespostas);
+            dbManager.notifyUpdateAfterTransaction(sqlDelPergunta);
+
+            System.out.println("[DB] Pergunta apagada: " + questionCode);
+            return true;
+
+        } catch (SQLException e) {
+            if (conn != null) try { conn.rollback(); } catch (SQLException ex) {}
+            System.err.println("[DB] Erro deleteQuestion: " + e.getMessage());
+            return false;
+        } finally {
+            if (conn != null) try { conn.close(); } catch (SQLException ex) {}
+            dbManager.getWriteLock().unlock();
+        }
+    }
+
     // Histórico do Aluno (Leitura)
     public StudentHistory getStudentHistory(String email) {
-        // ... (código inalterado) ...
         List<HistoryItem> history = new ArrayList<>();
         String sql = """
             SELECT p.text, p.end_time, o.is_correct

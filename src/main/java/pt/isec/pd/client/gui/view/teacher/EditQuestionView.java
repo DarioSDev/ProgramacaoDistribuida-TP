@@ -851,18 +851,15 @@ public class EditQuestionView extends BorderPane {
 
     private void showDeleteSuccessPopup() {
         overlay.setVisible(true);
-
         overlay.getChildren().clear();
 
-        VBox box = new VBox(12);
+        VBox box = new VBox(15);
         box.setAlignment(Pos.CENTER);
         box.setPadding(new Insets(25));
         box.setMinWidth(360);
-        box.setPrefWidth(360);
         box.setMaxWidth(360);
-        box.setMinHeight(200);
-        box.setPrefHeight(200);
-        box.setMaxHeight(200);
+        box.setMinHeight(360);
+        box.setMaxHeight(360);
 
         box.setStyle("""
             -fx-background-color: #D9D9D9;
@@ -874,32 +871,41 @@ public class EditQuestionView extends BorderPane {
 
         SVGPath trashCan = new SVGPath();
         trashCan.setContent("M6 19C6 20.1 6.9 21 8 21H16C17.1 21 18 20.1 18 19V7H6V19ZM19 4H15.5L14.5 3H9.5L8.5 4H5V6H19V4Z");
-        trashCan.setFill(Color.BLACK);
-        trashCan.setScaleX(1.2);
-        trashCan.setScaleY(1.2);
+        trashCan.setFill(Color.web("#A00000")); // Vermelho escuro
+        trashCan.setScaleX(1.5);
+        trashCan.setScaleY(1.5);
 
-        Label title = new Label("Question Deleted!");
-        title.setStyle("""
-            -fx-font-size: 16px;
-            -fx-text-fill: red;
-            -fx-font-weight: bold;
-            """);
+        Label title = new Label("Question Deleted");
+        title.setStyle("-fx-font-size: 18px; -fx-text-fill: #A00000; -fx-font-weight: bold;");
 
-        Label msg = new Label("The question was successfully deleted.");
+        Label msg = new Label("The question has been permanently removed.");
         msg.setStyle("-fx-text-fill: black; -fx-font-size: 14px;");
 
-        box.getChildren().addAll(trashCan, title, msg);
+        // Botão para voltar à lista
+        Button btnReturn = new Button("Return to History");
+        btnReturn.setCursor(Cursor.HAND);
+        btnReturn.setStyle("""
+            -fx-background-color: #A00000;
+            -fx-text-fill: white;
+            -fx-font-size: 14px;
+            -fx-font-weight: bold;
+            -fx-background-radius: 8;
+            -fx-padding: 8 20;
+        """);
+
+        btnReturn.setOnAction(e -> {
+            overlay.setVisible(false);
+            if (stateManager != null) {
+                stateManager.showQuestionHistory(user);
+            }
+        });
+
+        box.getChildren().addAll(trashCan, title, msg, btnReturn);
 
         overlay.getChildren().add(box);
         StackPane.setAlignment(box, Pos.CENTER);
 
-        overlay.setOnMouseClicked(e -> {
-            if (e.getTarget() == overlay) {
-                overlay.setVisible(false);
-                if (stateManager != null)
-                    stateManager.showQuestionHistory(user);
-            }
-        });
+        overlay.setOnMouseClicked(null);
     }
 
 }

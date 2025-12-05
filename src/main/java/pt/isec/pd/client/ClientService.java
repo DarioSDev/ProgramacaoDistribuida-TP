@@ -565,8 +565,32 @@ public class ClientService implements ClientAPI {
     }
 
     @Override
+    public boolean deleteQuestion(String questionId) {
+        if (out == null) return false;
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                out.writeObject(new Message(Command.DELETE_QUESTION, questionId));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse instanceof Boolean b) return b;
+                if (syncResponse instanceof Message m && m.getData() instanceof Boolean b) return b;
+
+                return false;
+
+            } catch (InterruptedException | IOException e) {
+                return false;
+            }
+        }
+    }
+
+    @Override
     public AnswerResultData getAnswerResult(User user, String code) {
-        // ainda não implementado no teu código original
         return null;
     }
 

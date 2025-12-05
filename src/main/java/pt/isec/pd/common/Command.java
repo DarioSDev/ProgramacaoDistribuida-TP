@@ -14,6 +14,7 @@ public enum Command {
     GET_QUESTION,           // Obter os dados da pergunta
     SUBMIT_ANSWER,         // Enviar a resposta do aluno
     EDIT_QUESTION,
+    DELETE_QUESTION,
 
     GET_TEACHER_QUESTIONS,
     GET_STUDENT_HISTORY,
