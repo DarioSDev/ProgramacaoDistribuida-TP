@@ -349,9 +349,9 @@ public class QueryPerformer {
     }
 
     // Histórico do Aluno (Leitura)
-    public List<ClientAPI.HistoryItem> getStudentHistory(String email) {
+    public StudentHistory getStudentHistory(String email) {
         // ... (código inalterado) ...
-        List<ClientAPI.HistoryItem> history = new ArrayList<>();
+        List<HistoryItem> history = new ArrayList<>();
         String sql = """
             SELECT p.text, p.end_time, o.is_correct
             FROM resposta r
@@ -378,14 +378,14 @@ public class QueryPerformer {
                     dateTime = LocalDateTime.parse(dateStr, DATETIME_FORMATTER);
                 }
 
-                history.add(new ClientAPI.HistoryItem(qText, dateTime != null ? dateTime.toLocalDate() : null, correct));
+                history.add(new HistoryItem(qText, dateTime != null ? dateTime.toLocalDate() : null, correct));
             }
         } catch (SQLException e) {
             System.err.println("[DB] Erro history: " + e.getMessage());
         } finally {
             dbManager.getReadLock().unlock();
         }
-        return history;
+        return new StudentHistory(email, history);
     }
 
     public TeacherResultsData getQuestionResults(String questionCode) {

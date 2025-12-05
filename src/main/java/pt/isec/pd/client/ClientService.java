@@ -489,8 +489,8 @@ public class ClientService implements ClientAPI {
     }
 
     @Override
-    public List<HistoryItem> getStudentHistory(User user, LocalDate start, LocalDate end, String filter) {
-        if (out == null) return new ArrayList<>();
+    public StudentHistory getStudentHistory(User user, LocalDate start, LocalDate end, String filter) throws IOException {
+        if (out == null) return null;
 
         synchronized (lock) {
             try {
@@ -502,14 +502,12 @@ public class ClientService implements ClientAPI {
 
                 lock.wait(5000);
 
-                if (syncResponse instanceof Message m && m.getData() instanceof List<?> list) {
-                    return (List<HistoryItem>) list;
+                if (syncResponse instanceof Message m && m.getData() instanceof StudentHistory history) {
+                    return history;
                 }
-                return new ArrayList<>();
+                return null;
             } catch (InterruptedException e) {
-                return new ArrayList<>();
-            } catch (IOException e) {
-                return new ArrayList<>();
+                return null;
             }
         }
     }

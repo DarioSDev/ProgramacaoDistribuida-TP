@@ -70,14 +70,14 @@ public class ClientServiceMock implements ClientAPI {
         );
     }
 
-    @Override
-    public List<HistoryItem> getStudentHistory(User user, LocalDate start, LocalDate end, String filter) {
-        return List.of(
-                new HistoryItem("What is the capital of France What is the capital of France What is the capital of France What is the capital of France?What is the capital of France", LocalDate.of(2025, 1, 12), true),
-                new HistoryItem("2 + 2 = ?", LocalDate.of(2025, 3, 10), false),
-                new HistoryItem("Who discovered America?", LocalDate.of(2024, 12, 20), true)
-        );
-    }
+//    @Override
+//    public List<HistoryItem> getStudentHistory(User user, LocalDate start, LocalDate end, String filter) {
+//        return List.of(
+//                new HistoryItem("What is the capital of France What is the capital of France What is the capital of France What is the capital of France?What is the capital of France", LocalDate.of(2025, 1, 12), true),
+//                new HistoryItem("2 + 2 = ?", LocalDate.of(2025, 3, 10), false),
+//                new HistoryItem("Who discovered America?", LocalDate.of(2024, 12, 20), true)
+//        );
+//    }
 
     @Override
     public boolean deleteQuestion(String questionId) {
