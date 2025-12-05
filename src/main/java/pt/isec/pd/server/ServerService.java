@@ -495,6 +495,14 @@ public class ServerService {
                                 out.flush();
                             }
                         }
+                        case DELETE_QUESTION -> {
+                            if (msg.getData() instanceof String code) {
+                                System.out.println("[Server] A apagar pergunta: " + code);
+                                boolean success = queryPerformer.deleteQuestion(code);
+                                out.writeObject(new Message(Command.DELETE_QUESTION, success));
+                                out.flush();
+                            }
+                        }
                         case GET_TEACHER_QUESTIONS -> {
                             if (msg.getData() instanceof String email) {
                                 List < Question > list = queryPerformer.getTeacherQuestions(email);
