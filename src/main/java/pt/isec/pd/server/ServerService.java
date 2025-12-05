@@ -487,6 +487,14 @@ public class ServerService {
                                 out.flush();
                             }
                         }
+                        case EDIT_QUESTION -> {
+                            if (msg.getData() instanceof Question q) {
+                                System.out.println("[Server] A editar pergunta: " + q.getId());
+                                boolean success = queryPerformer.editQuestion(q);
+                                out.writeObject(new Message(Command.EDIT_QUESTION, success));
+                                out.flush();
+                            }
+                        }
                         case GET_TEACHER_QUESTIONS -> {
                             if (msg.getData() instanceof String email) {
                                 List < Question > list = queryPerformer.getTeacherQuestions(email);

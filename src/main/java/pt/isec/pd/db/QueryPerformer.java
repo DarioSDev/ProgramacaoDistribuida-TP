@@ -278,7 +278,75 @@ public class QueryPerformer {
         }
     }
 
-    // --- (Restante código de leitura inalterado) ---
+    public boolean editQuestion(Question q) {
+        String startStr = q.getStartTime() != null ? q.getStartTime().format(DATETIME_FORMATTER) : null;
+        String endStr = q.getEndTime() != null ? q.getEndTime().format(DATETIME_FORMATTER) : null;
+
+        String sqlUpdateReplica = String.format(
+                "UPDATE pergunta SET text='%s', start_time='%s', end_time='%s' WHERE code='%s'",
+                q.getQuestion().replace("'", "''"),
+                startStr, endStr, q.getId()
+        );
+
+        Connection conn = null;
+        dbManager.getWriteLock().lock();
+
+        try {
+            conn = dbManager.getConnection();
+            conn.setAutoCommit(false);
+
+            long internalId = -1;
+            try(PreparedStatement ps = conn.prepareStatement("SELECT id FROM pergunta WHERE code = ?")) {
+                ps.setString(1, q.getId());
+                ResultSet rs = ps.executeQuery();
+                if(rs.next()) internalId = rs.getLong("id");
+            }
+            if (internalId == -1) { conn.rollback(); return false; }
+
+            String sqlUpdateLocal = "UPDATE pergunta SET text=?, start_time=?, end_time=? WHERE id=?";
+            try(PreparedStatement ps = conn.prepareStatement(sqlUpdateLocal)) {
+                ps.setString(1, q.getQuestion());
+                ps.setString(2, startStr);
+                ps.setString(3, endStr);
+                ps.setLong(4, internalId);
+                ps.executeUpdate();
+            }
+
+            try(PreparedStatement ps = conn.prepareStatement("DELETE FROM opcao WHERE pergunta_id = ?")) {
+                ps.setLong(1, internalId);
+                ps.executeUpdate();
+            }
+
+            String sqlInsertOpt = "INSERT INTO opcao (text, is_correct, pergunta_id) VALUES (?, ?, ?)";
+            try(PreparedStatement ps = conn.prepareStatement(sqlInsertOpt)) {
+                for (String optText : q.getOptions()) {
+                    ps.setString(1, optText);
+                    ps.setBoolean(2, optText.equals(q.getCorrectOption()));
+                    ps.setLong(3, internalId);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            }
+
+            conn.commit();
+
+            dbManager.notifyUpdateAfterTransaction(sqlUpdateReplica);
+
+            return true;
+
+        } catch (SQLException e) {
+            if (conn != null) {
+                try { conn.rollback(); } catch (SQLException ex) {}
+            }
+            e.printStackTrace();
+            return false;
+        } finally {
+            if (conn != null) {
+                try { conn.close(); } catch (SQLException ex) {}
+            }
+            dbManager.getWriteLock().unlock();
+        }
+    }
 
     // Histórico do Aluno (Leitura)
     public List<ClientAPI.HistoryItem> getStudentHistory(String email) {
