@@ -504,8 +504,8 @@ public class ServerService {
                         }
                         case GET_STUDENT_HISTORY -> {
                             if (msg.getData() instanceof String email) {
-                                List < ClientAPI.HistoryItem > history = queryPerformer.getStudentHistory(email);
-                                out.writeObject(new Message(Command.GET_STUDENT_HISTORY, new ArrayList < > (history)));
+                                StudentHistory history = queryPerformer.getStudentHistory(email);
+                                out.writeObject(new Message(Command.GET_STUDENT_HISTORY, history));
                                 out.flush();
                             }
                         }
