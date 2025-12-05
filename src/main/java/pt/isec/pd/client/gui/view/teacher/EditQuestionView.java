@@ -1,5 +1,6 @@
 package pt.isec.pd.client.gui.view.teacher;
 
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Cursor;
@@ -536,69 +537,100 @@ public class EditQuestionView extends BorderPane {
 
     private void handleSave() {
         try {
+            // 1. Validar Texto
             String text = questionArea.getText().trim();
             if (text.isEmpty()) {
-                showAlert("Validation", "Question text is required.");
+                showAlert(Alert.AlertType.WARNING, "Validation Error", "Please enter the question text.");
                 return;
             }
 
+            // 2. Validar Opções
             List<String> options = new ArrayList<>();
-            int correctIndex = -1;
+            String correctOptionText = null;
 
-            for (int i = 0; i < optionRows.size(); i++) {
-                OptionRow or = optionRows.get(i);
-                String optText = or.textField.getText().trim();
-                if (optText.isEmpty()) {
-                    continue;
-                }
-                options.add(optText);
-                if (or.radioButton.isSelected()) {
-                    correctIndex = i;
+            for (OptionRow row : optionRows) {
+                String optText = row.textField.getText().trim();
+                if (!optText.isEmpty()) {
+                    options.add(optText);
+                    if (row.radioButton.isSelected()) {
+                        correctOptionText = optText;
+                    }
                 }
             }
 
             if (options.size() < 2) {
-                showAlert("Validation", "At least two options are required.");
+                showAlert(Alert.AlertType.WARNING, "Validation Error", "At least two valid options are required.");
+                return;
+            }
+            if (correctOptionText == null) {
+                showAlert(Alert.AlertType.WARNING, "Validation Error", "Please select the correct option.");
                 return;
             }
 
-            if (correctIndex < 0 || correctIndex >= options.size()) {
-                showAlert("Validation", "Select the correct option.");
-                return;
-            }
-
-            if (!isValidDate(startDateField.getText()) || !isValidDate(endDateField.getText()) ||
-                    !isValidTime(startTimeField.getText()) || !isValidTime(endTimeField.getText())) {
-                showAlert("Validation", "Invalid date or time.");
+            // 3. Validar Datas
+            if (!isValidDate(startDateField.getText()) || !isValidTime(startTimeField.getText()) ||
+                    !isValidDate(endDateField.getText()) || !isValidTime(endTimeField.getText())) {
+                showAlert(Alert.AlertType.WARNING, "Validation Error", "Invalid date or time format.");
                 return;
             }
 
             LocalDate sd = parseDate(startDateField.getText());
-            LocalDate ed = parseDate(endDateField.getText());
             LocalTime st = parseTime(startTimeField.getText());
+            LocalDate ed = parseDate(endDateField.getText());
             LocalTime et = parseTime(endTimeField.getText());
 
             LocalDateTime start = LocalDateTime.of(sd, st);
             LocalDateTime end = LocalDateTime.of(ed, et);
 
             if (!end.isAfter(start)) {
-                showAlert("Validation", "End datetime must be after start datetime.");
+                showAlert(Alert.AlertType.WARNING, "Validation Error", "End time must be after start time.");
                 return;
             }
 
-            question.setQuestion(text);
-            question.setOptions(options.toArray(new String[0]));
-            char correctLetter = (char) ('a' + correctIndex);
-            question.setCorrectOption(String.valueOf(correctLetter));
-            question.setStartTime(start);
-            question.setEndTime(end);
+            Question updatedQ = new Question(
+                    text,
+                    correctOptionText,
+                    options.toArray(new String[0]),
+                    start,
+                    end,
+                    user.getEmail()
+            );
+            updatedQ.setId(question.getId());
 
-            overlay.setVisible(true);
+            // 5. Enviar
+            saveButton.setDisable(true);
+            new Thread(() -> {
+                try {
+                    boolean success = client.editQuestion(updatedQ);
+
+                    Platform.runLater(() -> {
+                        saveButton.setDisable(false);
+                        if (success) {
+                            overlay.setVisible(true); // Popup de sucesso
+                        } else {
+                            showAlert(Alert.AlertType.ERROR, "Server Error", "Failed to update question.");
+                        }
+                    });
+                } catch (Exception e) {
+                    Platform.runLater(() -> {
+                        saveButton.setDisable(false);
+                        showAlert(Alert.AlertType.ERROR, "Connection Error", e.getMessage());
+                    });
+                }
+            }).start();
 
         } catch (Exception e) {
             e.printStackTrace();
-            showAlert("Error", "Error while saving the question.");
         }
+    }
+
+    private void showAlert(Alert.AlertType type, String title, String content) {
+        Alert alert = new Alert(type);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(content);
+        alert.getDialogPane().setStyle("-fx-background-color: #D9D9D9; -fx-text-fill: black;");
+        alert.showAndWait();
     }
 
     private LocalDate parseDate(String text) {

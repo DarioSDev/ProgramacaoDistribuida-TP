@@ -13,6 +13,7 @@ public enum Command {
     VALIDATE_QUESTION_CODE, // Verificar se o código existe e está ativo
     GET_QUESTION,           // Obter os dados da pergunta
     SUBMIT_ANSWER,         // Enviar a resposta do aluno
+    EDIT_QUESTION,
 
     GET_TEACHER_QUESTIONS,
     GET_STUDENT_HISTORY,

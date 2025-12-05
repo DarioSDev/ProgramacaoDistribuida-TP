@@ -87,5 +87,9 @@ public interface ClientAPI {
 		throw new UnsupportedOperationException("deleteQuestion não implementado.");
 	}
 
+    default boolean editQuestion(Question question) throws IOException {
+        throw new UnsupportedOperationException("editQuestion não implementado.");
+    }
+
 }
 
