@@ -177,17 +177,32 @@ public class StudentQuestionHistoryView extends BorderPane {
         SVGPath icon = new SVGPath();
         Label statusLbl = new Label();
 
-        if (item.isCorrect()) { // TODO MOSTRA APENAS SE FOR PERGUNTA EXPIRADA
-            icon.setContent(SVG_CHECK_CIRCLE);
-            icon.setFill(Color.web("#28a745"));
-            statusLbl.setText("Correct Answer");
-            statusLbl.setStyle("-fx-text-fill: #28a745; -fx-font-size: 16px; -fx-font-weight: bold;");
+        LocalDate today = LocalDate.now();
+
+        boolean isExpired = item.getDate() != null && !item.getDate().isAfter(today);
+
+        if (isExpired) {
+            // MOSTRAR RESULTADO (CORRETO / ERRADO)
+            if (item.isCorrect()) {
+                icon.setContent(SVG_CHECK_CIRCLE);
+                icon.setFill(Color.web("#28a745")); // Verde
+                statusLbl.setText("Correct Answer");
+                statusLbl.setStyle("-fx-text-fill: #28a745; -fx-font-size: 16px; -fx-font-weight: bold;");
+            } else {
+                icon.setContent(SVG_CROSS_CIRCLE);
+                icon.setFill(Color.RED);
+                statusLbl.setText("Wrong Answer");
+                statusLbl.setStyle("-fx-text-fill: red; -fx-font-size: 16px; -fx-font-weight: bold;");
+            }
         } else {
-            icon.setContent(SVG_CROSS_CIRCLE);
-            icon.setFill(Color.RED);
-            statusLbl.setText("Wrong Answer");
-            statusLbl.setStyle("-fx-text-fill: red; -fx-font-size: 16px; -fx-font-weight: bold;");
+            // MOSTRAR STATUS PENDENTE (NÃO EXPIRADO)
+            icon.setContent(SVG_CHECK_CIRCLE);
+            icon.setFill(Color.web("#FFC107"));
+            String expirationDate = (item.getDate() != null) ? item.getDate().format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) : "TBD";
+            statusLbl.setText("Result pending. Available after " + expirationDate);
+            statusLbl.setStyle("-fx-text-fill: yellow; -fx-font-size: 16px; -fx-font-weight: bold;");
         }
+
         icon.setScaleX(1.5);
         icon.setScaleY(1.5);
 

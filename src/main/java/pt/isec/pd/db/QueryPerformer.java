@@ -205,11 +205,21 @@ public class QueryPerformer {
         }
     }
 
+    // [R25]
     public boolean submitAnswer(String studentEmail, String code, int optionIndex) {
         String sqlGetId = "SELECT id FROM pergunta WHERE code = ?";
         String sqlGetOptions = "SELECT id, is_correct FROM opcao WHERE pergunta_id = ? ORDER BY id ASC";
         String replicaSql = null;
         boolean isCorrect = false;
+
+        // VERIFICAR A VALIDADE TEMPORAL
+        String validity = validateQuestionCode(code);
+
+        // Se não for "VALID" (i.e., NOT_STARTED, EXPIRED, INVALID), bloqueia a submissão.
+        if (!"VALID".equals(validity)) {
+            System.err.printf("[DB] Submissão bloqueada para o código %s. Estado: %s%n", code, validity);
+            return false;
+        }
 
         dbManager.getWriteLock().lock();
         try (Connection conn = dbManager.getConnection()) {
@@ -260,7 +270,7 @@ public class QueryPerformer {
             replicaSql = String.format("INSERT OR IGNORE INTO resposta (estudante_email, pergunta_id, opcao_id) VALUES ('%s', %d, %d)",
                     studentEmail, questionId, optionId);
 
-            // 4. [CORREÇÃO] Notifica o Heartbeat Manager
+            // 4. Notifica o Heartbeat Manager
             dbManager.notifyUpdateAfterTransaction(replicaSql);
 
             System.out.println("[DB] Resposta submetida e notificada de " + studentEmail);
@@ -440,17 +450,23 @@ public class QueryPerformer {
     }
 
     // Histórico do Aluno
-    // [R26] TODO APENAS DEVE CONSEGUIR CONSULTAR AS PERGUNTAS EXPIRADAS
+    // [R26]
     public StudentHistory getStudentHistory(String email) {
         List<HistoryItem> history = new ArrayList<>();
-        String sql = """
-            SELECT p.text, p.end_time, o.is_correct
-            FROM resposta r
-            JOIN pergunta p ON r.pergunta_id = p.id
-            JOIN opcao o ON r.opcao_id = o.id
-            WHERE r.estudante_email = ?
-            ORDER BY p.end_time DESC
-        """;
+
+        // 1. Obter a hora atual formatada (para a cláusula WHERE)
+        LocalDateTime now = LocalDateTime.now();
+        String nowStr = now.format(DATETIME_FORMATTER); // DATETIME_FORMATTER deve estar disponível
+
+        // 2. CORREÇÃO DA QUERY: Adicionar filtro para incluir APENAS perguntas expiradas
+        String sql = String.format("""
+        SELECT p.text, p.end_time, o.is_correct
+        FROM resposta r
+        JOIN pergunta p ON r.pergunta_id = p.id
+        JOIN opcao o ON r.opcao_id = o.id
+        WHERE r.estudante_email = ? AND p.end_time < '%s' 
+        ORDER BY p.end_time DESC
+    """, nowStr); // Filtra as perguntas onde o fim do prazo JÁ PASSOU
 
         dbManager.getReadLock().lock();
         try (Connection conn = dbManager.getConnection();
@@ -466,9 +482,11 @@ public class QueryPerformer {
 
                 LocalDateTime dateTime = null;
                 if (dateStr != null) {
+                    // ⚠️ Nota: Use DATETIME_FORMATTER que deve ser ISO_LOCAL_DATE_TIME
                     dateTime = LocalDateTime.parse(dateStr, DATETIME_FORMATTER);
                 }
 
+                // Assumindo que HistoryItem é um record no pt.isec.pd.common
                 history.add(new HistoryItem(qText, dateTime != null ? dateTime.toLocalDate() : null, correct));
             }
         } catch (SQLException e) {
@@ -583,10 +601,21 @@ public class QueryPerformer {
     }
 
     // OBTER PERGUNTA PELO CÓDIGO (Leitura)
-    // [R24] TODO APENAS PODE REQUISITAR A PERGUNTA DENTRO DO PRAZO
-    // [R25] TODO APENAS PODE REQUISITAR A PERGUNTA DENTRO DO PRAZO
+    // [R24]
+    // [R25]
     public Question getQuestionByCode(String code) {
-        String sqlQuestion = "SELECT id, text, start_time, end_time, docente_email FROM pergunta WHERE code = ?";
+        // 1. Obter a hora atual formatada (para a cláusula WHERE)
+        LocalDateTime now = LocalDateTime.now();
+        String nowStr = now.format(DATETIME_FORMATTER); // DATETIME_FORMATTER deve estar disponível
+
+        // 2. CORREÇÃO DA QUERY: Adicionar filtro de start_time e end_time
+        String sqlQuestion = String.format("""
+        SELECT id, text, start_time, end_time, docente_email 
+        FROM pergunta 
+        WHERE code = ? AND start_time <= '%s' AND end_time >= '%s'
+    """, nowStr, nowStr); // Filtra para que a hora atual esteja DENTRO do intervalo
+
+        // Query de Opções (inalterada)
         String sqlOptions = "SELECT text, is_correct FROM opcao WHERE pergunta_id = ? ORDER BY id ASC";
 
         dbManager.getReadLock().lock();
@@ -601,6 +630,8 @@ public class QueryPerformer {
             try (PreparedStatement pstmt = conn.prepareStatement(sqlQuestion)) {
                 pstmt.setString(1, code);
                 ResultSet rs = pstmt.executeQuery();
+
+                // Se rs.next() for false, a pergunta não existe OU está fora do prazo.
                 if (rs.next()) {
                     questionId = rs.getLong("id");
                     text = rs.getString("text");
@@ -613,9 +644,10 @@ public class QueryPerformer {
                 }
             }
 
+            // Se questionId for -1, a pergunta não existe ou não está ativa AGORA, e retorna null.
             if (questionId == -1) return null;
 
-            // Passo B: Buscar Opções
+            // Passo B: Buscar Opções (inalterada, usa o questionId válido)
             List<String> optionsList = new ArrayList<>();
             String correctOption = null;
             int index = 0;
