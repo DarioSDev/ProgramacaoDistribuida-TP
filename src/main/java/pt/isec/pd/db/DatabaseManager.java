@@ -159,7 +159,6 @@ public class DatabaseManager {
         }
     }
 
-    // Método auxiliar: Incrementa a versão APENAS localmente
     private void incrementDbVersionLocalOnly() {
         try (Connection conn = getConnection();
              Statement stmt = conn.createStatement()) {
@@ -172,10 +171,6 @@ public class DatabaseManager {
         }
     }
 
-    /**
-     * Usado pelo Primary (Servidor Principal) para executar uma query iniciada por um cliente.
-     * Executa, incrementa, notifica o cluster (HB) e notifica os clientes (TCP).
-     */
     public boolean executeUpdateByClient(String sql) {
         writeLock.lock();
         try (Connection conn = getConnection();
@@ -204,10 +199,6 @@ public class DatabaseManager {
         }
     }
 
-    /**
-     * Usado pelo Servidor Secundário ao receber uma query de sincronização via Multicast.
-     * Apenas executa a query e incrementa a versão localmente (sem notificar).
-     */
     public boolean executeUpdateBySync(String sql) {
         writeLock.lock();
         try (Connection conn = getConnection();
@@ -231,10 +222,6 @@ public class DatabaseManager {
         }
     }
 
-    /**
-     * Usado pelo Primary após uma transação (multi-query com commit/rollback) ser concluída.
-     * Envia o Heartbeat com a query replicável (já commitada) e incrementa a versão.
-     */
     public void notifyUpdateAfterTransaction(String replicableSql) {
         writeLock.lock();
         try {
@@ -259,7 +246,6 @@ public class DatabaseManager {
     // Implementação da Notificação Assíncrona de Clientes TCP
     private void notifyClientsOfUpdate(String replicableQuery) {
         if (connectedClients != null && !connectedClients.isEmpty()) {
-            // NOTA: A mensagem deve ser mais sofisticada (ex: qual pergunta/utilizador mudou)
             Message notification = new Message(Command.UPDATE_NOTIFICATION, replicableQuery);
 
             // Executa a notificação numa thread separada para não bloquear a thread do cliente/escrita
@@ -277,7 +263,6 @@ public class DatabaseManager {
         }
     }
 
-    // Método mantido inalterado
     public static String hashCode(String code) {
         try {
             byte[] salt = "TEACHER_CODE_SALT".getBytes();

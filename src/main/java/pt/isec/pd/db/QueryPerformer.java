@@ -77,7 +77,6 @@ public class QueryPerformer {
     }
 
     public User getUser(String email) {
-        // ... (lógica inalterada de leitura) ...
         String sqlStudent = "SELECT email, name, password, student_number FROM estudante WHERE email = ?";
         String sqlTeacher = "SELECT email, name, password, extra FROM docente WHERE email = ?";
 
@@ -409,6 +408,34 @@ public class QueryPerformer {
         } finally {
             if (conn != null) try { conn.close(); } catch (SQLException ex) {}
             dbManager.getWriteLock().unlock();
+        }
+    }
+
+    public boolean hasSubmittedAnswers(String questionCode) {
+        String sql = """
+            SELECT COUNT(*)
+            FROM resposta r
+            JOIN pergunta p ON r.pergunta_id = p.id
+            WHERE p.code = ?
+        """;
+
+        dbManager.getReadLock().lock();
+        try (Connection conn = dbManager.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setString(1, questionCode);
+            ResultSet rs = pstmt.executeQuery();
+
+            if (rs.next()) {
+                return rs.getInt(1) > 0;
+            }
+            return false;
+
+        } catch (SQLException e) {
+            System.err.println("[DB] Erro ao verificar respostas: " + e.getMessage());
+            return true; // Assume erro como bloqueio de segurança
+        } finally {
+            dbManager.getReadLock().unlock();
         }
     }
 

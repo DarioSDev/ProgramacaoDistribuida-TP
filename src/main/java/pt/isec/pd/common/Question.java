@@ -110,6 +110,7 @@ public class Question implements Serializable {
     }
 
     public int getTotalAnswers() { return totalAnswers; }
+
     public void setTotalAnswers(int totalAnswers) { this.totalAnswers = totalAnswers; }
 
     public boolean isActive() {

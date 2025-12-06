@@ -497,19 +497,40 @@ public class ServerService {
                         // [R19] TODO APENAS EDITAR SEM RESPOSTAS ASSOCIADAS
                         case EDIT_QUESTION -> {
                             if (msg.getData() instanceof Question q) {
-                                System.out.println("[Server] A editar pergunta: " + q.getId());
-                                boolean success = queryPerformer.editQuestion(q);
-                                out.writeObject(new Message(Command.EDIT_QUESTION, success));
-                                out.flush();
+                                String questionCode = q.getId();
+
+                                // 1. Verificar se há respostas (Regra de Negócio)
+                                if (queryPerformer.hasSubmittedAnswers(questionCode)) {
+                                    System.out.println("[Server] Edição bloqueada: Respostas encontradas para " + questionCode);
+                                    // Retorna uma mensagem de erro ou false com um código de erro
+                                    responseMsg = new Message(Command.EDIT_QUESTION, "ANSWERS_EXIST");
+                                } else {
+                                    System.out.println("[Server] A editar pergunta: " + questionCode);
+                                    // 2. Executa a edição (o QueryPerformer trata da transação/replicação)
+                                    boolean success = queryPerformer.editQuestion(q);
+                                    responseMsg = new Message(Command.EDIT_QUESTION, success);
+                                }
+                            } else {
+                                responseMsg = new Message(Command.EDIT_QUESTION, false);
                             }
                         }
                         // [R20] TODO APENAS DELETE SEM RESPOSTAS ASSOCIADAS
                         case DELETE_QUESTION -> {
                             if (msg.getData() instanceof String code) {
-                                System.out.println("[Server] A apagar pergunta: " + code);
-                                boolean success = queryPerformer.deleteQuestion(code);
-                                out.writeObject(new Message(Command.DELETE_QUESTION, success));
-                                out.flush();
+
+                                // 1. Verificar se há respostas (Regra de Negócio)
+                                if (queryPerformer.hasSubmittedAnswers(code)) {
+                                    System.out.println("[Server] Eliminação bloqueada: Respostas encontradas para " + code);
+                                    // Retorna uma mensagem de erro ou false com um código de erro
+                                    responseMsg = new Message(Command.DELETE_QUESTION, "ANSWERS_EXIST");
+                                } else {
+                                    System.out.println("[Server] A apagar pergunta: " + code);
+                                    // 2. Executa a eliminação
+                                    boolean success = queryPerformer.deleteQuestion(code);
+                                    responseMsg = new Message(Command.DELETE_QUESTION, success);
+                                }
+                            } else {
+                                responseMsg = new Message(Command.DELETE_QUESTION, false);
                             }
                         }
                         // [R21]
