@@ -184,11 +184,13 @@ public class HeartbeatManager extends Thread {
                         System.out.println("  → Query SQL incluída: SIM");
 
                         // Requisito: Versão recebida deve ser igual ao valor local acrescido de 1
+                        // [R31]
                         if (receivedVersion == localVersion + 1) {
                             System.out.println("  → Sincronização OK. A aplicar query: " + sqlQuery);
                             // [CORREÇÃO] Chama o método de sincronização que não notifica o cluster.
                             dbManager.executeUpdateBySync(sqlQuery);
                         } else {
+                            // [R32]
                             // Perda de sincronização
                             System.err.printf("  → ERRO: Perda de sincronização (V_Received:%d != V_Local:%d+1). Terminando.%n",
                                     receivedVersion, localVersion);

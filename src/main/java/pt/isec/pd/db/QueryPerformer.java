@@ -352,6 +352,7 @@ public class QueryPerformer {
         }
     }
 
+    // [R20] TODO APENAS DELETE SEM RESPOSTAS ASSOCIADAS
     public boolean deleteQuestion(String questionCode) {
         dbManager.getWriteLock().lock();
         Connection conn = null;
@@ -359,7 +360,6 @@ public class QueryPerformer {
             conn = dbManager.getConnection();
             conn.setAutoCommit(false);
 
-            // 1. Obter o ID interno (PK) usando o código
             long internalId = -1;
             try (PreparedStatement ps = conn.prepareStatement("SELECT id FROM pergunta WHERE code = ?")) {
                 ps.setString(1, questionCode);
@@ -412,7 +412,8 @@ public class QueryPerformer {
         }
     }
 
-    // Histórico do Aluno (Leitura)
+    // Histórico do Aluno
+    // [R26] TODO APENAS DEVE CONSEGUIR CONSULTAR AS PERGUNTAS EXPIRADAS
     public StudentHistory getStudentHistory(String email) {
         List<HistoryItem> history = new ArrayList<>();
         String sql = """
@@ -451,8 +452,8 @@ public class QueryPerformer {
         return new StudentHistory(email, history);
     }
 
+    // [R22]
     public TeacherResultsData getQuestionResults(String questionCode) {
-        // ... (código inalterado) ...
         Question q = getQuestionByCode(questionCode);
         if (q == null) return null;
 
@@ -521,7 +522,6 @@ public class QueryPerformer {
 
     // VALIDAR CÓDIGO DA PERGUNTA (Leitura)
     public String validateQuestionCode(String code) {
-        // ... (código inalterado) ...
         String sql = "SELECT start_time, end_time FROM pergunta WHERE code = ?";
 
         dbManager.getReadLock().lock();
@@ -556,8 +556,9 @@ public class QueryPerformer {
     }
 
     // OBTER PERGUNTA PELO CÓDIGO (Leitura)
+    // [R24] TODO APENAS PODE REQUISITAR A PERGUNTA DENTRO DO PRAZO
+    // [R25] TODO APENAS PODE REQUISITAR A PERGUNTA DENTRO DO PRAZO
     public Question getQuestionByCode(String code) {
-        // ... (código inalterado) ...
         String sqlQuestion = "SELECT id, text, start_time, end_time, docente_email FROM pergunta WHERE code = ?";
         String sqlOptions = "SELECT text, is_correct FROM opcao WHERE pergunta_id = ? ORDER BY id ASC";
 
@@ -622,8 +623,8 @@ public class QueryPerformer {
         }
     }
 
+    // [R21]
     public List<Question> getTeacherQuestions(String teacherEmail) {
-        // ... (código inalterado) ...
         List<Question> list = new ArrayList<>();
 
         String sql = """

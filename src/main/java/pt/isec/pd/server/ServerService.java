@@ -122,13 +122,12 @@ public class ServerService {
         if (isPrimary) {
             File[] dbFiles = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".db"));
             File selectedFile;
-            if (dbFiles == null || dbFiles.length == 0) {
-                // [REQUISITO] Se não houver BD, cria nova com versão 0.
-                // Sugestão para nomeação: usar timestamp + porto para evitar colisões
-                String newFileName = "data_" + this.tcpClientPort + "_" + System.currentTimeMillis() + ".db";
+            if (dbFiles == null || dbFiles.length == 0) { // [R33] create
+                String newFileName = "data_" + this.tcpClientPort + "_" + System.currentTimeMillis() + ".db"; // [R29]
                 System.out.println("[DB-INIT][PRIMARY] Nenhuma BD encontrada. Criando nova: " + newFileName);
                 selectedFile = new File(dir, newFileName);
             } else {
+                // [R33] reuse newer bd
                 System.out.println("[DB-INIT][PRIMARY] BDs encontradas:");
                 for (File f: dbFiles)
                     System.out.println(" → " + f.getName() + " (size=" + f.length() + " bytes)");
@@ -145,18 +144,17 @@ public class ServerService {
             this.queryPerformer = new QueryPerformer(dbManager);
         } else {
             System.out.println("[DB-INIT][BACKUP] Modo backup. A aguardar sincronização...");
-            if (!downloadDatabaseFromPrimary()) {
+            if (!downloadDatabaseFromPrimary()) { // [R30]
                 // [REQUISITO] Se falhar, termina informando o diretório.
                 System.err.println("[DB-INIT][BACKUP] ERRO: Falha ao receber base de dados. A iniciar shutdown.");
-                shutdown();
+                shutdown(); // [R30]
                 System.exit(1);
             }
         }
     }
-
+    // [R27]
     private boolean registerAndGetPrimary() throws IOException {
-        udpSocket.setSoTimeout(DIRECTORY_TIMEOUT_MS);
-        // [REQUISITO] Envia portos TCP automáticos.
+        udpSocket.setSoTimeout(DIRECTORY_TIMEOUT_MS); // [R28]
         String msg = String.format("REGISTER %d %d %d", tcpClientPort, tcpDbPort, udpPort);
         byte[] buf = msg.getBytes();
         InetAddress dirAddr = InetAddress.getByName(directoryHost);
@@ -172,11 +170,13 @@ public class ServerService {
             response = new String(recv.getData(), 0, recv.getLength()).trim();
             System.out.println("[Server] Confirmação do Directory: " + response);
             String[] parts = response.split("\\s+");
+            // [R27]
             if (parts.length >= 4 && parts[0].equals("PRIMARY")) {
                 primaryIp = InetAddress.getByName(parts[1]);
                 primaryTcpClientPort = Integer.parseInt(parts[2]);
                 primaryDbPort = Integer.parseInt(parts[3]);
                 udpSocket.setSoTimeout(0);
+                // [R27]
                 isPrimary = (primaryTcpClientPort == tcpClientPort);
                 if (isPrimary) {
                     System.out.println("[Server] EU SOU O PRIMARY!");
@@ -185,10 +185,9 @@ public class ServerService {
                 }
                 return true;
             }
-            // [REQUISITO] Se a resposta não for PRIMARY (ou incompleta), termina.
             return false;
+            // [R28]
         } catch (SocketTimeoutException e) {
-            // [REQUISITO] Se não receber resposta, termina.
             System.err.println("[Server] Timeout: Directory não respondeu. A terminar.");
             return false;
         }
@@ -223,6 +222,7 @@ public class ServerService {
                 System.err.println("[SYNC][BACKUP] Apagando ficheiro incompleto: " + syncedFile.getAbsolutePath());
                 syncedFile.delete();
             }
+            // [R30]
             return false;
         }
     }
@@ -471,6 +471,8 @@ public class ServerService {
                                 out.flush();
                             }
                         }
+                        // [R24] TODO APENAS PODE REQUISITAR A PERGUNTA DENTRO DO PRAZO
+                        // [R25] TODO APENAS PODE REQUISITAR A PERGUNTA DENTRO DO PRAZO
                         case GET_QUESTION -> {
                             if (msg.getData() instanceof String code) {
                                 System.out.println("[Server] Pedido de dados da pergunta: " + code);
@@ -492,6 +494,7 @@ public class ServerService {
                                 out.flush();
                             }
                         }
+                        // [R19] TODO APENAS EDITAR SEM RESPOSTAS ASSOCIADAS
                         case EDIT_QUESTION -> {
                             if (msg.getData() instanceof Question q) {
                                 System.out.println("[Server] A editar pergunta: " + q.getId());
@@ -500,6 +503,7 @@ public class ServerService {
                                 out.flush();
                             }
                         }
+                        // [R20] TODO APENAS DELETE SEM RESPOSTAS ASSOCIADAS
                         case DELETE_QUESTION -> {
                             if (msg.getData() instanceof String code) {
                                 System.out.println("[Server] A apagar pergunta: " + code);
@@ -508,6 +512,7 @@ public class ServerService {
                                 out.flush();
                             }
                         }
+                        // [R21]
                         case GET_TEACHER_QUESTIONS -> {
                             if (msg.getData() instanceof String email) {
                                 List < Question > list = queryPerformer.getTeacherQuestions(email);
@@ -515,6 +520,7 @@ public class ServerService {
                                 out.flush();
                             }
                         }
+                        // [R26] TODO APENAS DEVE CONSEGUIR CONSULTAR AS PERGUNTAS EXPIRADAS
                         case GET_STUDENT_HISTORY -> {
                             if (msg.getData() instanceof String email) {
                                 StudentHistory history = queryPerformer.getStudentHistory(email);
@@ -522,6 +528,7 @@ public class ServerService {
                                 out.flush();
                             }
                         }
+                        // [R22]
                         case GET_QUESTION_RESULTS -> {
                             if (msg.getData() instanceof String code) {
                                 TeacherResultsData results = queryPerformer.getQuestionResults(code);

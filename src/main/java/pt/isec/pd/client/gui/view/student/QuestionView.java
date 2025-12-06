@@ -78,6 +78,8 @@ public class QuestionView extends BorderPane {
         content.setPadding(new Insets(30, 60, 30, 60));
         content.setMaxWidth(1000);
 
+        // [R24] TODO APENAS PODE REQUISITAR A PERGUNTA DENTRO DO PRAZO
+        // [R25] TODO APENAS PODE REQUISITAR A PERGUNTA DENTRO DO PRAZO
         ClientAPI.QuestionData data = client.getQuestionByCode(code);
 
         String questionTextStr = (data != null ? data.text() : "Error loading question.");

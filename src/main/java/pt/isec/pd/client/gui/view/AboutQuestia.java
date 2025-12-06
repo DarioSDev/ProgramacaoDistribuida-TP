@@ -64,7 +64,7 @@ public class AboutQuestia {
         HBox row = new HBox(50);
         row.setAlignment(Pos.CENTER);
 
-        row.getChildren().add(personCard("Dário Santos", "/images/dario.jpg", "2021110772"));
+        row.getChildren().add(personCard("Dario Santos", "/images/dario.jpg", "2021110772"));
         row.getChildren().add(personCard("Evilania Lima", "/images/evilania.jpg", "2021125566"));
         row.getChildren().add(personCard("José Bastos", "/images/jose.jpg", "2021127160"));
 

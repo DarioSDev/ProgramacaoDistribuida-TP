@@ -101,6 +101,7 @@ public class StudentQuestionHistoryView extends BorderPane {
         allItems.clear();
         new Thread(() -> {
             try {
+                // [R26] TODO APENAS DEVE CONSEGUIR CONSULTAR AS PERGUNTAS EXPIRADAS
                 StudentHistory historyObj = client.getStudentHistory(user, null, null, null);
 
                 Platform.runLater(() -> {

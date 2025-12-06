@@ -412,6 +412,9 @@ public class ClientService implements ClientAPI {
         }
     }
 
+
+    // [R24] TODO APENAS PODE REQUISITAR A PERGUNTA DENTRO DO PRAZO
+    // [R25] TODO APENAS PODE REQUISITAR A PERGUNTA DENTRO DO PRAZO
     @Override
     public QuestionData getQuestionByCode(String code) {
         if (out == null) return null; // Devia lançar exceção, mas a interface retorna objeto
@@ -465,6 +468,7 @@ public class ClientService implements ClientAPI {
         }
     }
 
+    // [R21]
     @Override
     public List<Question> getTeacherQuestions(User user, String filter) throws IOException {
         if (out == null) return new ArrayList<>();
@@ -491,6 +495,7 @@ public class ClientService implements ClientAPI {
         }
     }
 
+    // [R26] TODO APENAS DEVE CONSEGUIR CONSULTAR AS PERGUNTAS EXPIRADAS
     @Override
     public StudentHistory getStudentHistory(User user, LocalDate start, LocalDate end, String filter) throws IOException {
         if (out == null) return null;
@@ -515,6 +520,7 @@ public class ClientService implements ClientAPI {
         }
     }
 
+    // [R22]
     @Override
     public TeacherResultsData getQuestionResults(User user, String questionCode) {
         if (out == null) return null;
@@ -567,6 +573,7 @@ public class ClientService implements ClientAPI {
         }
     }
 
+    // [R20] TODO APENAS DELETE SEM RESPOSTAS ASSOCIADAS
     @Override
     public boolean deleteQuestion(String questionId) {
         if (out == null) return false;
