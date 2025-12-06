@@ -13,7 +13,7 @@ public class ServerService {
     private static final int MULTICAST_PORT = 3030;
     private static final int HEARTBEAT_INTERVAL_MS = 5000;
     private static final int DIRECTORY_TIMEOUT_MS = 26000;
-    private static final int NO_AUTH_TIMEOUT_MS = 30000;
+    private static final int NO_AUTH_TIMEOUT_MS = 60000;
 
     private final String directoryHost;
     private final int directoryPort;
@@ -244,6 +244,7 @@ public class ServerService {
             System.err.println("[SYNC][PRIMARY] Schema ainda não está pronto! NÃO envio BD.");
             return;
         }
+        // [R1]
         dbManager.getWriteLock().lock();
         try {
             try (FileInputStream fis = new FileInputStream(dbFile);
@@ -263,10 +264,12 @@ public class ServerService {
             System.err.println("[SYNC][PRIMARY] ERRO ao enviar: " + e.getMessage());
         } finally {
             dbManager.getWriteLock().unlock();
+            // R1
         }
     }
 
     private Thread startDirectoryHeartbeatListener() {
+        // [R6]
         Thread listenerThread = new Thread(() -> {
             byte[] buf = new byte[256];
             while (running) {
@@ -329,6 +332,7 @@ public class ServerService {
         }
     }
 
+    // [R3]
     private void startClientListener() {
         clientPool = Executors.newFixedThreadPool(10);
         new Thread(() -> {
@@ -366,35 +370,32 @@ public class ServerService {
         }
     }
 
+    // [R4]
     private void handleClient(Socket client) {
         ObjectInputStream in = null;
         ObjectOutputStream out = null;
         try {
-            // 1. Define o timeout de 30 segundos (NO_AUTH_TIMEOUT_MS) para a primeira leitura (credenciais).
+            // [R10]
             client.setSoTimeout(NO_AUTH_TIMEOUT_MS);
             out = new ObjectOutputStream(client.getOutputStream());
             out.flush();
             in = new ObjectInputStream(client.getInputStream());
             System.out.println("[Server] Cliente conectado: " + client.getRemoteSocketAddress());
-            // Envia mensagem de boas-vindas
             out.writeObject(new Message(Command.CONNECTION, "BEM-VINDO AO SERVIDOR PD"));
             out.flush();
             // 2. Tenta ler a primeira mensagem (LOGIN ou REGISTER).
-            // Se o cliente demorar mais de 30s, lança SocketTimeoutException.
+            // [R10] ENDS
             Object obj = in.readObject();
             // 3. Se a primeira leitura foi bem-sucedida, remove o timeout para o resto da sessão
             client.setSoTimeout(0);
             // Variável para a mensagem lida
             Message msg;
             // 4. Inicia o loop de processamento (processa a primeira mensagem e depois continua a ler)
-            // Usa um loop "do-while" ou trata a primeira mensagem fora do loop para evitar duplicação.
-            // A forma mais limpa é tratar a primeira mensagem (obj) fora do loop e depois entrar no 'while'.
             if (!(obj instanceof Message)) {
                 System.out.println("[Server] Recebido objeto não-Message como primeira mensagem: " + obj);
-                return; // Termina se o formato for inválido.
+                return;
             }
             msg = (Message) obj;
-            // Varinável de controlo para a primeira mensagem
             boolean isFirstMessage = true;
             do {
                 // Se não for a primeira mensagem, tenta ler a próxima
@@ -416,6 +417,7 @@ public class ServerService {
                 Message responseMsg = null;
                 try {
                     switch (cmd) {
+                        // [R15]
                         case LOGIN -> {
                             if (data instanceof User loginUser) {
                                 RoleType role = queryPerformer.authenticate(loginUser.getEmail(), loginUser.getPassword());
@@ -425,14 +427,14 @@ public class ServerService {
                                     u.setRole(role.name().toLowerCase());
                                     responseMsg = new Message(Command.LOGIN, u);
                                 } else {
-                                    // Se a autenticação falhar, a ligação permanece aberta para novas tentativas de login,
-                                    // mas o requisito de 30s já foi cumprido.
                                     responseMsg = new Message(Command.LOGIN, null);
                                 }
                             } else {
                                 responseMsg = new Message(Command.LOGIN, null);
                             }
                         }
+                        // [R13]
+                        // [R14]
                         case REGISTER_STUDENT, REGISTER_TEACHER -> {
                             if (data instanceof User newUser) {
                                 boolean ok = queryPerformer.registerUser(newUser);
@@ -449,6 +451,8 @@ public class ServerService {
                                 responseMsg = new Message(Command.GET_USER_INFO, null);
                             }
                         }
+
+                        // [R18]
                         case CREATE_QUESTION -> {
                             if (data instanceof Question q) {
                                 boolean ok = queryPerformer.saveQuestion(q);
@@ -457,6 +461,7 @@ public class ServerService {
                                 responseMsg = new Message(Command.CREATE_QUESTION, false);
                             }
                         }
+                        // [R17]
                         case LOGOUT -> responseMsg = new Message(Command.LOGOUT, "BYE");
                         case VALIDATE_QUESTION_CODE -> {
                             if (msg.getData() instanceof String code) {
@@ -561,12 +566,19 @@ public class ServerService {
     }
 
     private void startDbSyncListener() {
+        // [R5]
         new Thread(() -> {
             while (running) {
                 try {
                     Socket peer = dbServerSocket.accept();
-                    sendDatabase(peer);
-                    peer.close();
+                    // [R5]
+                    new Thread(() -> {
+                        try {
+                            sendDatabase(peer);
+                        } finally {
+                            try { peer.close(); } catch (IOException ignored) {}
+                        }
+                    }, "DbTransfer-Thread").start();
                 } catch (IOException e) {
                     if (running) System.err.println("[Server] Erro DbSync: " + e.getMessage());
                 }

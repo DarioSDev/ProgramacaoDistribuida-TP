@@ -1,6 +1,4 @@
 package pt.isec.pd.db;
-
-import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.common.*;
 
 import java.sql.*;
@@ -22,11 +20,14 @@ public class QueryPerformer {
         String values;
         String finalSql;
 
+        // [R14]
         if (user instanceof Student s) {
             tableName = "estudante";
             values = String.format("'%s', '%s', '%s', '%s'",
                     user.getEmail(), user.getName(), user.getPassword(), s.getIdNumber());
-        } else if (user instanceof Teacher) {
+        }
+        // [R13]
+        else if (user instanceof Teacher) {
             if (!validateTeacherCode(user.getExtra())) {
                 System.err.println("[DB] Registo docente: Código de validação inválido.");
                 return false;
@@ -49,6 +50,7 @@ public class QueryPerformer {
         return false;
     }
 
+    // R[13]
     public boolean validateTeacherCode(String teacherCode) {
         String sql = "SELECT teacher_hash FROM config WHERE id = 1";
 
@@ -125,6 +127,7 @@ public class QueryPerformer {
     }
 
     // --- GESTÃO DE PERGUNTAS ---
+    // [R18]
     public boolean saveQuestion(Question q) {
         String sqlQuestion = String.format(
                 "INSERT INTO pergunta (code, text, start_time, end_time, docente_email) VALUES ('%s', '%s', %s, %s, '%s')",
@@ -278,6 +281,7 @@ public class QueryPerformer {
         }
     }
 
+    // [R19] TODO APENAS EDITAR SEM RESPOSTAS ASSOCIADAS
     public boolean editQuestion(Question q) {
         String startStr = q.getStartTime() != null ? q.getStartTime().format(DATETIME_FORMATTER) : null;
         String endStr = q.getEndTime() != null ? q.getEndTime().format(DATETIME_FORMATTER) : null;

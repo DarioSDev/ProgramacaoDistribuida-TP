@@ -116,7 +116,7 @@ public class DatabaseManager {
 
             stmt.execute("INSERT OR IGNORE INTO config (id, version, teacher_hash) VALUES (1, 0, NULL)");
 
-            // ... (Inicialização do teacher_hash) ...
+            // R[13]
             PreparedStatement ps = conn.prepareStatement("SELECT teacher_hash FROM config WHERE id = 1");
             ResultSet rs = ps.executeQuery();
             if (rs.next()) {

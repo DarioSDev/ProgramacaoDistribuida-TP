@@ -107,6 +107,7 @@ public class ClientService implements ClientAPI {
             // Cenário 2: Primary igual ou Arranque Inicial
             System.out.printf("[Client] Tentativa %d/%d de ligação ao Primary %s:%d%n", attempt, attempts, newIp, newPort);
 
+            // [R11]
             if (attemptTcpConnection(newIp, newPort)) {
                 currentServerIp = newIp;
                 currentServerPort = newPort;
@@ -142,13 +143,10 @@ public class ClientService implements ClientAPI {
             out.flush();
             in = new ObjectInputStream(socket.getInputStream());
 
-            // se o servidor enviar logo uma mensagem de boas-vindas, podes lê-la aqui
             try {
                 Object welcome = in.readObject();
                 System.out.println("[Client] Conectado: " + welcome);
-            } catch (EOFException ignore) {
-                // servidor não enviou nada, seguimos à mesma
-            }
+            } catch (EOFException ignore) {}
 
             activeSocket = socket;
             return true;
@@ -159,6 +157,7 @@ public class ClientService implements ClientAPI {
         }
     }
 
+    // [R7]
     private void listenAndMaintainSession() {
         boolean lastConnectionFailed = false;
         try {
@@ -178,6 +177,7 @@ public class ClientService implements ClientAPI {
                     continue;
                 }
 
+                // [R7]
                 synchronized (lock) {
                     if (expectingResponse) {
                         syncResponse = received;
@@ -228,6 +228,7 @@ public class ClientService implements ClientAPI {
         }
     }
 
+    // [R9]
     private String[] requestActiveServer() {
         try (DatagramSocket socket = new DatagramSocket()) {
             byte[] buf = "REQUEST_SERVER".getBytes();
@@ -265,6 +266,7 @@ public class ClientService implements ClientAPI {
     // Métodos da ClientAPI (os teus, intactos)
     // ==========================
 
+    // [R15]
     @Override
     public String sendLogin(String email, String pwd) throws IOException {
         if (out == null) throw new IOException("Sem ligação TCP.");
@@ -335,6 +337,7 @@ public class ClientService implements ClientAPI {
         }
     }
 
+    // [R18]
     @Override
     public QuestionResult createQuestion(User user, String text, List<String> options, String correctOption,
                                          LocalDate sd, LocalTime st, LocalDate ed, LocalTime et) throws IOException {

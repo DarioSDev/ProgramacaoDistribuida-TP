@@ -65,6 +65,7 @@ public class UserManager {
         return this;
     }
 
+    // [R17]
     public void logOut() {
         reset();
     }

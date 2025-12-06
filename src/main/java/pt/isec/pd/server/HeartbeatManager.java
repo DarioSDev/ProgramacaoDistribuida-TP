@@ -51,11 +51,13 @@ public class HeartbeatManager extends Thread {
 
     @Override
     public void start() {
-        super.start();                                                                                // inicia sender
+        super.start();
+        // [R2]
         new Thread(this::listenAllHeartbeats, "Heartbeat-Receiver-Multi").start();              // inicia receiver
     }
 
     // === THREAD SENDER ===
+    // [R2]
     @Override
     public void run() {
         try {
@@ -74,6 +76,7 @@ public class HeartbeatManager extends Thread {
     }
 
     // SENDER periódico (sem query)
+    // R2
     public void sendHeartbeat() {
         try {
             InetAddress mcAddr = InetAddress.getByName(MULTICAST_IP);

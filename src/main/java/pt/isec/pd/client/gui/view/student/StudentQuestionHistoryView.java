@@ -176,7 +176,7 @@ public class StudentQuestionHistoryView extends BorderPane {
         SVGPath icon = new SVGPath();
         Label statusLbl = new Label();
 
-        if (item.isCorrect()) {
+        if (item.isCorrect()) { // TODO MOSTRA APENAS SE FOR PERGUNTA EXPIRADA
             icon.setContent(SVG_CHECK_CIRCLE);
             icon.setFill(Color.web("#28a745"));
             statusLbl.setText("Correct Answer");
