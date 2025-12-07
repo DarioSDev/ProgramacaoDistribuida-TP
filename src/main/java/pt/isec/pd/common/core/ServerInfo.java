@@ -1,4 +1,4 @@
-package pt.isec.pd.common;
+package pt.isec.pd.common.core;
 
 import java.net.InetAddress;
 import java.time.Instant;

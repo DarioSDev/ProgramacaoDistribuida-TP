@@ -1,7 +1,7 @@
 package pt.isec.pd.db;
 
-import pt.isec.pd.common.Command;
-import pt.isec.pd.common.Message;
+import pt.isec.pd.common.core.Command;
+import pt.isec.pd.common.core.Message;
 import pt.isec.pd.server.HeartbeatManager;
 
 import javax.crypto.SecretKeyFactory;

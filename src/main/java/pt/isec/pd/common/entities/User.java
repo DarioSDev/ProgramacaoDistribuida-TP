@@ -1,9 +1,7 @@
-package pt.isec.pd.common;
+package pt.isec.pd.common.entities;
 
 import java.io.Serial;
 import java.io.Serializable;
-
-import static org.springframework.data.jpa.domain.AbstractPersistable_.id;
 
 public class User implements Serializable {
     @Serial

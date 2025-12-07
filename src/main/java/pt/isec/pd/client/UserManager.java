@@ -1,7 +1,7 @@
 package pt.isec.pd.client;
 
-import pt.isec.pd.common.RoleType;
-import pt.isec.pd.common.User;
+import pt.isec.pd.common.core.RoleType;
+import pt.isec.pd.common.entities.User;
 
 public class UserManager {
     private static UserManager instance;

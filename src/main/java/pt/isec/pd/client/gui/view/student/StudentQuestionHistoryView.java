@@ -12,16 +12,14 @@ import javafx.scene.shape.Circle;
 import javafx.scene.shape.SVGPath;
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
-import pt.isec.pd.common.HistoryItem;
-import pt.isec.pd.common.Question;
-import pt.isec.pd.common.StudentHistory;
-import pt.isec.pd.common.User;
+import pt.isec.pd.common.dto.HistoryItem;
+import pt.isec.pd.common.dto.StudentHistory;
+import pt.isec.pd.common.entities.User;
 
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 public class StudentQuestionHistoryView extends BorderPane {
@@ -159,68 +157,99 @@ public class StudentQuestionHistoryView extends BorderPane {
         content.setPadding(new Insets(20, 40, 20, 40));
         content.setMaxWidth(1000);
 
-        Label title = new Label("Answer Details");
+        Label title = new Label("Question Details");
         title.setStyle("-fx-text-fill: white; -fx-font-size: 22px; -fx-font-weight: bold;");
 
-        // Informação da Questão
+        // Pergunta
+        VBox qBox = new VBox(8);
         Label qLbl = new Label("Question:");
         qLbl.setStyle("-fx-text-fill: " + COLOR_PRIMARY + "; -fx-font-size: 14px; -fx-font-weight: bold;");
         Label questionText = new Label(item.getQuestionText());
         questionText.setWrapText(true);
         questionText.setMaxWidth(840);
         questionText.setStyle("-fx-text-fill: white; -fx-font-size: 16px;");
+        qBox.getChildren().addAll(qLbl, questionText);
 
-        // Informação do Resultado
-        HBox statusBox = new HBox(10);
-        statusBox.setAlignment(Pos.CENTER_LEFT);
+        // Opções
+        VBox optionsBox = new VBox(12);
+        List<String> options = item.getOptions();
+        String correctLetter = item.getCorrectOption();
+        String studentLetter = item.getStudentOption();
 
-        SVGPath icon = new SVGPath();
-        Label statusLbl = new Label();
+        if (options != null) {
+            for (int i = 0; i < options.size(); i++) {
+                String text = options.get(i);
+                String currentLetter = String.valueOf((char)('a' + i));
 
-        LocalDate today = LocalDate.now();
+                boolean isCorrect = currentLetter.equalsIgnoreCase(correctLetter);
+                boolean isSelected = currentLetter.equalsIgnoreCase(studentLetter);
 
-        boolean isExpired = item.getDate() != null && !item.getDate().isAfter(today);
+                HBox row = new HBox(15);
+                row.setAlignment(Pos.CENTER_LEFT);
+                row.setPadding(new Insets(12, 15, 12, 15));
+                row.setMaxWidth(840);
 
-        if (isExpired) {
-            // MOSTRAR RESULTADO (CORRETO / ERRADO)
-            if (item.isCorrect()) {
-                icon.setContent(SVG_CHECK_CIRCLE);
-                icon.setFill(Color.web("#28a745")); // Verde
-                statusLbl.setText("Correct Answer");
-                statusLbl.setStyle("-fx-text-fill: #28a745; -fx-font-size: 16px; -fx-font-weight: bold;");
-            } else {
-                icon.setContent(SVG_CROSS_CIRCLE);
-                icon.setFill(Color.RED);
-                statusLbl.setText("Wrong Answer");
-                statusLbl.setStyle("-fx-text-fill: red; -fx-font-size: 16px; -fx-font-weight: bold;");
+                if (isCorrect) {
+                    row.setStyle("""
+                        -fx-background-color: rgba(40, 167, 69, 0.20); 
+                        -fx-border-color: #28a745; 
+                        -fx-border-radius: 8; 
+                        -fx-background-radius: 8;
+                    """);
+                } else if (isSelected && !item.isCorrect()) {
+                    row.setStyle("""
+                        -fx-background-color: rgba(220, 53, 69, 0.20); 
+                        -fx-border-color: #dc3545; 
+                        -fx-border-radius: 8; 
+                        -fx-background-radius: 8;
+                    """);
+                } else {
+                    row.setStyle("-fx-background-color: #2A2A2A; -fx-background-radius: 8;");
+                }
+
+                // Ícone
+                Node icon;
+                if (isCorrect) {
+                    SVGPath check = new SVGPath();
+                    check.setContent(SVG_CHECK_CIRCLE);
+                    check.setFill(Color.web("#28a745"));
+                    check.setScaleX(1.3); check.setScaleY(1.3);
+                    icon = check;
+                } else if (isSelected) {
+                    SVGPath cross = new SVGPath();
+                    cross.setContent(SVG_CROSS_CIRCLE);
+                    cross.setFill(Color.web("#dc3545"));
+                    cross.setScaleX(1.3); cross.setScaleY(1.3);
+                    icon = cross;
+                } else {
+                    Circle c = new Circle(9);
+                    c.setFill(Color.TRANSPARENT);
+                    c.setStroke(Color.GRAY);
+                    c.setStrokeWidth(2);
+                    icon = c;
+                }
+
+                Label lblOption = new Label(currentLetter + ") " + text);
+                lblOption.setStyle("-fx-text-fill: white; -fx-font-size: 14px;");
+                lblOption.setWrapText(true);
+
+                row.getChildren().addAll(icon, lblOption);
+                optionsBox.getChildren().add(row);
             }
-        } else {
-            // MOSTRAR STATUS PENDENTE (NÃO EXPIRADO)
-            icon.setContent(SVG_CHECK_CIRCLE);
-            icon.setFill(Color.web("#FFC107"));
-            String expirationDate = (item.getDate() != null) ? item.getDate().format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) : "TBD";
-            statusLbl.setText("Result pending. Available after " + expirationDate);
-            statusLbl.setStyle("-fx-text-fill: yellow; -fx-font-size: 16px; -fx-font-weight: bold;");
         }
 
-        icon.setScaleX(1.5);
-        icon.setScaleY(1.5);
-
-        statusBox.getChildren().addAll(icon, statusLbl);
-
-        // Botão de Voltar
-        Button btnBackToList = new Button("Back to List");
-        styleBackButton(btnBackToList);
-        btnBackToList.setOnAction(e -> {
+        Button btnBack = new Button("Back");
+        styleBackButton(btnBack);
+        btnBack.setOnAction(e -> {
             centerWrapper.getChildren().clear();
             centerWrapper.getChildren().add(mainContent);
         });
 
-        HBox btnBox = new HBox(btnBackToList);
-        btnBox.setAlignment(Pos.CENTER);
-        btnBox.setPadding(new Insets(40, 0, 0, 0));
+        HBox btnContainer = new HBox(btnBack);
+        btnContainer.setAlignment(Pos.CENTER);
+        btnContainer.setPadding(new Insets(20, 0, 0, 0));
 
-        content.getChildren().addAll(title, qLbl, questionText, statusBox, btnBox);
+        content.getChildren().addAll(title, qBox, optionsBox, btnContainer);
         return content;
     }
 

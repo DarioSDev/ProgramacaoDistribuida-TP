@@ -1,7 +1,16 @@
 package pt.isec.pd.db;
-import pt.isec.pd.common.*;
+import pt.isec.pd.common.core.RoleType;
+import pt.isec.pd.common.dto.HistoryItem;
+import pt.isec.pd.common.dto.StudentAnswerInfo;
+import pt.isec.pd.common.dto.StudentHistory;
+import pt.isec.pd.common.dto.TeacherResultsData;
+import pt.isec.pd.common.entities.Question;
+import pt.isec.pd.common.entities.Student;
+import pt.isec.pd.common.entities.Teacher;
+import pt.isec.pd.common.entities.User;
 
 import java.sql.*;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -213,7 +222,7 @@ public class QueryPerformer {
         boolean isCorrect = false;
 
         // VERIFICAR A VALIDADE TEMPORAL
-        String validity = validateQuestionCode(code);
+        String validity = validateQuestionCode(code, studentEmail);
 
         // Se não for "VALID" (i.e., NOT_STARTED, EXPIRED, INVALID), bloqueia a submissão.
         if (!"VALID".equals(validity)) {
@@ -454,19 +463,19 @@ public class QueryPerformer {
     public StudentHistory getStudentHistory(String email) {
         List<HistoryItem> history = new ArrayList<>();
 
-        // 1. Obter a hora atual formatada (para a cláusula WHERE)
         LocalDateTime now = LocalDateTime.now();
-        String nowStr = now.format(DATETIME_FORMATTER); // DATETIME_FORMATTER deve estar disponível
+        String nowStr = now.format(DATETIME_FORMATTER);
 
-        // 2. CORREÇÃO DA QUERY: Adicionar filtro para incluir APENAS perguntas expiradas
         String sql = String.format("""
-        SELECT p.text, p.end_time, o.is_correct
-        FROM resposta r
-        JOIN pergunta p ON r.pergunta_id = p.id
-        JOIN opcao o ON r.opcao_id = o.id
-        WHERE r.estudante_email = ? AND p.end_time < '%s' 
-        ORDER BY p.end_time DESC
-    """, nowStr); // Filtra as perguntas onde o fim do prazo JÁ PASSOU
+            SELECT p.id AS pid, p.code, p.text, p.end_time, o.id AS selected_opt_id, o.is_correct
+            FROM resposta r
+            JOIN pergunta p ON r.pergunta_id = p.id
+            JOIN opcao o ON r.opcao_id = o.id
+            WHERE r.estudante_email = ? AND p.end_time < '%s'
+            ORDER BY p.end_time DESC
+        """, nowStr);
+
+        String sqlOpts = "SELECT id, text, is_correct FROM opcao WHERE pergunta_id = ? ORDER BY id ASC";
 
         dbManager.getReadLock().lock();
         try (Connection conn = dbManager.getConnection();
@@ -476,24 +485,64 @@ public class QueryPerformer {
             ResultSet rs = pstmt.executeQuery();
 
             while (rs.next()) {
+                long internalQId = rs.getLong("pid");     // ID interno para buscar opções
+                String code = rs.getString("code");       // ID público (6 dígitos)
                 String qText = rs.getString("text");
                 String dateStr = rs.getString("end_time");
-                boolean correct = rs.getBoolean("is_correct");
+                long selectedOptId = rs.getLong("selected_opt_id"); // ID da opção que o aluno escolheu
+                boolean answerWasCorrect = rs.getBoolean("is_correct");
 
-                LocalDateTime dateTime = null;
+                LocalDate date = null;
                 if (dateStr != null) {
-                    // ⚠️ Nota: Use DATETIME_FORMATTER que deve ser ISO_LOCAL_DATE_TIME
-                    dateTime = LocalDateTime.parse(dateStr, DATETIME_FORMATTER);
+                    date = LocalDateTime.parse(dateStr, DATETIME_FORMATTER).toLocalDate();
                 }
 
-                // Assumindo que HistoryItem é um record no pt.isec.pd.common
-                history.add(new HistoryItem(qText, dateTime != null ? dateTime.toLocalDate() : null, correct));
+                List<String> optionsText = new ArrayList<>();
+                String correctLet = "?";
+                String studentLet = "?";
+
+                try (PreparedStatement psOpts = conn.prepareStatement(sqlOpts)) {
+                    psOpts.setLong(1, internalQId);
+                    ResultSet rsOpts = psOpts.executeQuery();
+
+                    int idx = 0;
+                    while (rsOpts.next()) {
+                        String txt = rsOpts.getString("text");
+                        long optId = rsOpts.getLong("id");
+                        boolean isOptCorrect = rsOpts.getBoolean("is_correct");
+
+                        optionsText.add(txt);
+
+                        // Calcular letra resposta
+                        char letter = (char) ('a' + idx);
+
+                        if (isOptCorrect) {
+                            correctLet = String.valueOf(letter);
+                        }
+                        if (optId == selectedOptId) {
+                            studentLet = String.valueOf(letter);
+                        }
+
+                        idx++;
+                    }
+                }
+
+                history.add(new HistoryItem(
+                        code,
+                        qText,
+                        date,
+                        answerWasCorrect,
+                        optionsText,
+                        correctLet,
+                        studentLet
+                ));
             }
         } catch (SQLException e) {
             System.err.println("[DB] Erro history: " + e.getMessage());
         } finally {
             dbManager.getReadLock().unlock();
         }
+
         return new StudentHistory(email, history);
     }
 
@@ -503,8 +552,9 @@ public class QueryPerformer {
         if (q == null) return null;
 
         List<StudentAnswerInfo> studentAnswers = new ArrayList<>();
+
         String sql = """
-            SELECT e.name, e.email, o.id as opcao_id
+            SELECT e.name, e.email, e.student_number, o.id as opcao_id
             FROM resposta r
             JOIN estudante e ON r.estudante_email = e.email
             JOIN pergunta p ON r.pergunta_id = p.id
@@ -517,29 +567,27 @@ public class QueryPerformer {
 
         dbManager.getReadLock().lock();
         try (Connection conn = dbManager.getConnection()) {
-
-            // Mapeamento IDs
             try(PreparedStatement ps = conn.prepareStatement(sqlOpts)) {
                 ps.setString(1, questionCode);
                 ResultSet rs = ps.executeQuery();
                 while(rs.next()) orderedOptionIds.add(rs.getLong("id"));
             }
 
-            // Buscar Respostas
             try(PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setString(1, questionCode);
                 ResultSet rs = ps.executeQuery();
                 while(rs.next()) {
                     String name = rs.getString("name");
                     String email = rs.getString("email");
+                    String number = rs.getString("student_number");
                     long optId = rs.getLong("opcao_id");
 
-                    // Calcular letra
                     int idx = orderedOptionIds.indexOf(optId);
                     String letter = (idx != -1) ? String.valueOf((char)('a' + idx)) : "?";
                     boolean isCorrect = letter.equalsIgnoreCase(q.getCorrectOption());
 
-                    studentAnswers.add(new StudentAnswerInfo(name, email, letter, isCorrect));
+                    // Construtor atualizado
+                    studentAnswers.add(new StudentAnswerInfo(number, name, email, letter, isCorrect));
                 }
             }
 
@@ -550,50 +598,96 @@ public class QueryPerformer {
             dbManager.getReadLock().unlock();
         }
 
-        String dateStr = "N/A";
+        String dateStr = "N/A", startStr = "N/A", endStr = "N/A";
         if (q.getStartTime() != null) {
-            dateStr = q.getStartTime().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+            dateStr = q.getStartTime().format(DateTimeFormatter.ofPattern("dd-MM-yyyy"));
+            startStr = q.getStartTime().format(DateTimeFormatter.ofPattern("HH:mm"));
+        }
+        if (q.getEndTime() != null) {
+            endStr = q.getEndTime().format(DateTimeFormatter.ofPattern("HH:mm"));
         }
 
         return new TeacherResultsData(
                 q.getQuestion(),
                 List.of(q.getOptions()),
                 q.getCorrectOption(),
-                dateStr,
+                dateStr, startStr, endStr,
                 studentAnswers.size(),
                 studentAnswers
         );
     }
 
-    // VALIDAR CÓDIGO DA PERGUNTA (Leitura)
-    public String validateQuestionCode(String code) {
-        String sql = "SELECT start_time, end_time FROM pergunta WHERE code = ?";
+    public boolean editUser(User user) {
+        String tableName;
+        if ("student".equalsIgnoreCase(user.getRole())) {
+            tableName = "estudante";
+        } else if ("teacher".equalsIgnoreCase(user.getRole())) {
+            tableName = "docente";
+        } else {
+            return false;
+        }
+
+        String sql = String.format("UPDATE %s SET name='%s', password='%s' WHERE email='%s'",
+                tableName,
+                user.getName(),
+                user.getPassword(),
+                user.getEmail()
+        );
+
+        if (dbManager.executeUpdateByClient(sql)) {
+            System.out.println("[DB] Perfil atualizado: " + user.getEmail());
+            return true;
+        }
+        return false;
+    }
+
+    public String validateQuestionCode(String code, String studentEmail) {
+        String sqlQuery = "SELECT id, start_time, end_time FROM pergunta WHERE code = ?";
+        String sqlCheckAnswer = """
+            SELECT 1 FROM resposta r
+            JOIN pergunta p ON r.pergunta_id = p.id
+            WHERE p.code = ? AND r.estudante_email = ?
+        """;
 
         dbManager.getReadLock().lock();
-        try (Connection conn = dbManager.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+        try (Connection conn = dbManager.getConnection()) {
 
-            pstmt.setString(1, code);
-            ResultSet rs = pstmt.executeQuery();
+            String startStr = null, endStr = null;
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlQuery)) {
+                pstmt.setString(1, code);
+                ResultSet rs = pstmt.executeQuery();
 
-            if (!rs.next()) return "INVALID";
+                if (!rs.next()) return "INVALID"; // code not found
 
-            String startStr = rs.getString("start_time");
-            String endStr = rs.getString("end_time");
+                startStr = rs.getString("start_time");
+                endStr = rs.getString("end_time");
+            }
 
-            if (startStr == null || endStr == null) return "VALID";
+            // Validação Temporal
+            if (startStr != null && endStr != null) {
+                LocalDateTime start = LocalDateTime.parse(startStr, DATETIME_FORMATTER);
+                LocalDateTime end = LocalDateTime.parse(endStr, DATETIME_FORMATTER);
+                LocalDateTime now = LocalDateTime.now();
 
-            LocalDateTime start = LocalDateTime.parse(startStr, DATETIME_FORMATTER);
-            LocalDateTime end = LocalDateTime.parse(endStr, DATETIME_FORMATTER);
-            LocalDateTime now = LocalDateTime.now();
+                if (now.isBefore(start)) return "NOT_STARTED";
+                if (now.isAfter(end)) return "EXPIRED";
+            }
 
-            if (now.isBefore(start)) return "NOT_STARTED";
-            if (now.isAfter(end)) return "EXPIRED";
+            // 2. ALREADY_ANSWERED check
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlCheckAnswer)) {
+                pstmt.setString(1, code);
+                pstmt.setString(2, studentEmail);
+                ResultSet rs = pstmt.executeQuery();
+
+                if (rs.next()) {
+                    return "ALREADY_ANSWERED";
+                }
+            }
 
             return "VALID";
 
         } catch (SQLException e) {
-            System.err.println("[DB] Erro ao validar código: " + e.getMessage());
+            System.err.println("[DB] Erro validateQuestionCode: " + e.getMessage());
             return "ERROR";
         } finally {
             dbManager.getReadLock().unlock();

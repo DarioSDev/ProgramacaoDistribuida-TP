@@ -1,7 +1,7 @@
 // pt.isec.pd.directory.DirectoryHeartbeatMonitor
 package pt.isec.pd.directory;
 
-import pt.isec.pd.common.ServerInfo;
+import pt.isec.pd.common.core.ServerInfo;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
