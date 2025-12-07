@@ -617,6 +617,30 @@ public class QueryPerformer {
         );
     }
 
+    public boolean editUser(User user) {
+        String tableName;
+        if ("student".equalsIgnoreCase(user.getRole())) {
+            tableName = "estudante";
+        } else if ("teacher".equalsIgnoreCase(user.getRole())) {
+            tableName = "docente";
+        } else {
+            return false;
+        }
+
+        String sql = String.format("UPDATE %s SET name='%s', password='%s' WHERE email='%s'",
+                tableName,
+                user.getName(),
+                user.getPassword(),
+                user.getEmail()
+        );
+
+        if (dbManager.executeUpdateByClient(sql)) {
+            System.out.println("[DB] Perfil atualizado: " + user.getEmail());
+            return true;
+        }
+        return false;
+    }
+
     public String validateQuestionCode(String code, String studentEmail) {
         String sqlQuery = "SELECT id, start_time, end_time FROM pergunta WHERE code = ?";
         String sqlCheckAnswer = """

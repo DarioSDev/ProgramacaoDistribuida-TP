@@ -67,7 +67,9 @@ public interface ClientAPI {
         throw new UnsupportedOperationException("getQuestionResults não implementado.");
     }
 
-    // --- Records e Enums auxiliares ---
+    default boolean editProfile(User user) throws IOException {
+        throw new UnsupportedOperationException("editProfile não implementado.");
+    }
 
     record QuestionData(String text, List<String> options) {}
 

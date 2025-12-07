@@ -1,5 +1,6 @@
 package pt.isec.pd.client.gui.view.teacher;
 
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Cursor;
@@ -9,6 +10,7 @@ import javafx.scene.paint.Color;
 import javafx.scene.shape.SVGPath;
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
+import pt.isec.pd.client.UserManager;
 import pt.isec.pd.common.entities.User;
 
 public class EditProfileTeacherView extends BorderPane {
@@ -188,15 +190,44 @@ public class EditProfileTeacherView extends BorderPane {
         """);
 
         saveButton.setOnAction(e -> {
+            String newName = nameField.getText();
+            String newPass = passwordField.getText();
+            String confirmPass = confirmPasswordField.getText();
 
-            if (nameField.getText().isBlank()
-                    || emailField.getText().isBlank()) {
-                showFeedback("Please fill in all required fields.", false);
+            if (newName.isBlank() || newPass.isBlank()) {
+                showFeedback("Please fill in name and password.", false);
                 return;
             }
-            showFeedback("Profile updated successfully!", true);
-        });
 
+            if (!newPass.equals(confirmPass)) {
+                showFeedback("Passwords do not match.", false);
+                return;
+            }
+
+            User updatedUser = new User(
+                    newName,
+                    user.getEmail(),
+                    newPass,
+                    "teacher",
+                    user.getTeacherCode() // Mantém o código original
+            );
+
+            new Thread(() -> {
+                try {
+                    boolean success = client.editProfile(updatedUser);
+                    Platform.runLater(() -> {
+                        if (success) {
+                            showFeedback("Profile updated successfully!", true);
+                            UserManager.getInstance().setUser(updatedUser);
+                        } else {
+                            showFeedback("Failed to update profile.", false);
+                        }
+                    });
+                } catch (Exception ex) {
+                    Platform.runLater(() -> showFeedback("Error: " + ex.getMessage(), false));
+                }
+            }).start();
+        });
 
         VBox root = new VBox(40, fields, saveButton);
         root.setAlignment(Pos.CENTER);
@@ -246,6 +277,7 @@ public class EditProfileTeacherView extends BorderPane {
     private void loadUserData() {
         nameField.setText(user.getName());
         emailField.setText(user.getEmail());
+        emailField.setDisable(true);
     }
 
     private void showFeedback(String message, boolean success) {

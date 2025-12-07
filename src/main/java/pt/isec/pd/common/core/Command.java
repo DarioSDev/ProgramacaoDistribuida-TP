@@ -9,6 +9,7 @@ public enum Command {
     CREATE_QUESTION,
     LOGOUT,
     UPDATE_NOTIFICATION,
+    EDIT_PROFILE,
 
     VALIDATE_QUESTION_CODE, // Verificar se o código existe e está ativo
     GET_QUESTION,           // Obter os dados da pergunta

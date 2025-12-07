@@ -468,6 +468,19 @@ public class ServerService {
                         }
                         // [R17]
                         case LOGOUT -> responseMsg = new Message(Command.LOGOUT, "BYE");
+
+                        case EDIT_PROFILE -> {
+                            if (msg.getData() instanceof User u) {
+                                System.out.println("[Server] A editar perfil: " + u.getEmail());
+                                boolean success = queryPerformer.editUser(u);
+                                out.writeObject(new Message(Command.EDIT_PROFILE, success));
+                                out.flush();
+                            } else {
+                                out.writeObject(new Message(Command.EDIT_PROFILE, false));
+                                out.flush();
+                            }
+                        }
+
                         case VALIDATE_QUESTION_CODE -> {
                             if (msg.getData() instanceof String[] parts && parts.length == 2) {
                                 String email = parts[0];

@@ -396,6 +396,32 @@ public class ClientService implements ClientAPI {
     }
 
     @Override
+    public boolean editProfile(User user) throws IOException {
+        if (out == null) throw new IOException("Sem ligação TCP.");
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                out.writeObject(new Message(Command.EDIT_PROFILE, user));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse instanceof Boolean b) return b;
+                if (syncResponse instanceof Message m && m.getData() instanceof Boolean b) return b;
+
+                return false;
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+    }
+
+    @Override
     public String validateQuestionCode(String code) throws IOException {
         if (out == null) throw new IOException("Sem ligação TCP.");
 
