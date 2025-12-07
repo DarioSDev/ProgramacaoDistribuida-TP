@@ -544,8 +544,9 @@ public class QueryPerformer {
         if (q == null) return null;
 
         List<StudentAnswerInfo> studentAnswers = new ArrayList<>();
+
         String sql = """
-            SELECT e.name, e.email, o.id as opcao_id
+            SELECT e.name, e.email, e.student_number, o.id as opcao_id
             FROM resposta r
             JOIN estudante e ON r.estudante_email = e.email
             JOIN pergunta p ON r.pergunta_id = p.id
@@ -558,29 +559,27 @@ public class QueryPerformer {
 
         dbManager.getReadLock().lock();
         try (Connection conn = dbManager.getConnection()) {
-
-            // Mapeamento IDs
             try(PreparedStatement ps = conn.prepareStatement(sqlOpts)) {
                 ps.setString(1, questionCode);
                 ResultSet rs = ps.executeQuery();
                 while(rs.next()) orderedOptionIds.add(rs.getLong("id"));
             }
 
-            // Buscar Respostas
             try(PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setString(1, questionCode);
                 ResultSet rs = ps.executeQuery();
                 while(rs.next()) {
                     String name = rs.getString("name");
                     String email = rs.getString("email");
+                    String number = rs.getString("student_number");
                     long optId = rs.getLong("opcao_id");
 
-                    // Calcular letra
                     int idx = orderedOptionIds.indexOf(optId);
                     String letter = (idx != -1) ? String.valueOf((char)('a' + idx)) : "?";
                     boolean isCorrect = letter.equalsIgnoreCase(q.getCorrectOption());
 
-                    studentAnswers.add(new StudentAnswerInfo(name, email, letter, isCorrect));
+                    // Construtor atualizado
+                    studentAnswers.add(new StudentAnswerInfo(number, name, email, letter, isCorrect));
                 }
             }
 
@@ -591,16 +590,20 @@ public class QueryPerformer {
             dbManager.getReadLock().unlock();
         }
 
-        String dateStr = "N/A";
+        String dateStr = "N/A", startStr = "N/A", endStr = "N/A";
         if (q.getStartTime() != null) {
-            dateStr = q.getStartTime().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+            dateStr = q.getStartTime().format(DateTimeFormatter.ofPattern("dd-MM-yyyy"));
+            startStr = q.getStartTime().format(DateTimeFormatter.ofPattern("HH:mm"));
+        }
+        if (q.getEndTime() != null) {
+            endStr = q.getEndTime().format(DateTimeFormatter.ofPattern("HH:mm"));
         }
 
         return new TeacherResultsData(
                 q.getQuestion(),
                 List.of(q.getOptions()),
                 q.getCorrectOption(),
-                dateStr,
+                dateStr, startStr, endStr,
                 studentAnswers.size(),
                 studentAnswers
         );
