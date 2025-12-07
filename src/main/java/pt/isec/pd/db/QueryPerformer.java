@@ -2,6 +2,7 @@ package pt.isec.pd.db;
 import pt.isec.pd.common.*;
 
 import java.sql.*;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -454,19 +455,19 @@ public class QueryPerformer {
     public StudentHistory getStudentHistory(String email) {
         List<HistoryItem> history = new ArrayList<>();
 
-        // 1. Obter a hora atual formatada (para a cláusula WHERE)
         LocalDateTime now = LocalDateTime.now();
-        String nowStr = now.format(DATETIME_FORMATTER); // DATETIME_FORMATTER deve estar disponível
+        String nowStr = now.format(DATETIME_FORMATTER);
 
-        // 2. CORREÇÃO DA QUERY: Adicionar filtro para incluir APENAS perguntas expiradas
         String sql = String.format("""
-        SELECT p.text, p.end_time, o.is_correct
-        FROM resposta r
-        JOIN pergunta p ON r.pergunta_id = p.id
-        JOIN opcao o ON r.opcao_id = o.id
-        WHERE r.estudante_email = ? AND p.end_time < '%s' 
-        ORDER BY p.end_time DESC
-    """, nowStr); // Filtra as perguntas onde o fim do prazo JÁ PASSOU
+            SELECT p.id AS pid, p.code, p.text, p.end_time, o.id AS selected_opt_id, o.is_correct
+            FROM resposta r
+            JOIN pergunta p ON r.pergunta_id = p.id
+            JOIN opcao o ON r.opcao_id = o.id
+            WHERE r.estudante_email = ? AND p.end_time < '%s'
+            ORDER BY p.end_time DESC
+        """, nowStr);
+
+        String sqlOpts = "SELECT id, text, is_correct FROM opcao WHERE pergunta_id = ? ORDER BY id ASC";
 
         dbManager.getReadLock().lock();
         try (Connection conn = dbManager.getConnection();
@@ -476,24 +477,64 @@ public class QueryPerformer {
             ResultSet rs = pstmt.executeQuery();
 
             while (rs.next()) {
+                long internalQId = rs.getLong("pid");     // ID interno para buscar opções
+                String code = rs.getString("code");       // ID público (6 dígitos)
                 String qText = rs.getString("text");
                 String dateStr = rs.getString("end_time");
-                boolean correct = rs.getBoolean("is_correct");
+                long selectedOptId = rs.getLong("selected_opt_id"); // ID da opção que o aluno escolheu
+                boolean answerWasCorrect = rs.getBoolean("is_correct");
 
-                LocalDateTime dateTime = null;
+                LocalDate date = null;
                 if (dateStr != null) {
-                    // ⚠️ Nota: Use DATETIME_FORMATTER que deve ser ISO_LOCAL_DATE_TIME
-                    dateTime = LocalDateTime.parse(dateStr, DATETIME_FORMATTER);
+                    date = LocalDateTime.parse(dateStr, DATETIME_FORMATTER).toLocalDate();
                 }
 
-                // Assumindo que HistoryItem é um record no pt.isec.pd.common
-                history.add(new HistoryItem(qText, dateTime != null ? dateTime.toLocalDate() : null, correct));
+                List<String> optionsText = new ArrayList<>();
+                String correctLet = "?";
+                String studentLet = "?";
+
+                try (PreparedStatement psOpts = conn.prepareStatement(sqlOpts)) {
+                    psOpts.setLong(1, internalQId);
+                    ResultSet rsOpts = psOpts.executeQuery();
+
+                    int idx = 0;
+                    while (rsOpts.next()) {
+                        String txt = rsOpts.getString("text");
+                        long optId = rsOpts.getLong("id");
+                        boolean isOptCorrect = rsOpts.getBoolean("is_correct");
+
+                        optionsText.add(txt);
+
+                        // Calcular letra resposta
+                        char letter = (char) ('a' + idx);
+
+                        if (isOptCorrect) {
+                            correctLet = String.valueOf(letter);
+                        }
+                        if (optId == selectedOptId) {
+                            studentLet = String.valueOf(letter);
+                        }
+
+                        idx++;
+                    }
+                }
+
+                history.add(new HistoryItem(
+                        code,
+                        qText,
+                        date,
+                        answerWasCorrect,
+                        optionsText,
+                        correctLet,
+                        studentLet
+                ));
             }
         } catch (SQLException e) {
             System.err.println("[DB] Erro history: " + e.getMessage());
         } finally {
             dbManager.getReadLock().unlock();
         }
+
         return new StudentHistory(email, history);
     }
 
