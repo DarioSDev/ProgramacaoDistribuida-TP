@@ -158,7 +158,7 @@ public class MenuStudentView extends BorderPane {
                 case "NOT_STARTED" -> showPopup("This question is scheduled for later.\nIt has not started yet.");
                 case "EXPIRED" -> showPopup("The time for this question has ended.\nIt is expired.");
                 case "INVALID" -> showPopup("The code provided does not exist.");
-                default -> showPopup("Unable to access question.\nReason: " + validation);
+                default -> showPopup("Unable to access question.\n" + validation);
             }
 
         } catch (IOException ex) {
