@@ -1,4 +1,4 @@
-package pt.isec.pd.common;
+package pt.isec.pd.common.entities;
 
 import java.io.Serial;
 import java.io.Serializable;

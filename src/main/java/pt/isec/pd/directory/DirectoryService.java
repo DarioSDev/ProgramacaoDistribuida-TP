@@ -1,8 +1,8 @@
 // pt.isec.pd.directory.DirectoryService
 package pt.isec.pd.directory;
 
-import pt.isec.pd.common.MessageType;
-import pt.isec.pd.common.ServerInfo;
+import pt.isec.pd.common.core.MessageType;
+import pt.isec.pd.common.core.ServerInfo;
 
 import java.io.IOException;
 import java.net.*;

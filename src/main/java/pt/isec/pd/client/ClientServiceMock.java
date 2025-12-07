@@ -1,9 +1,8 @@
 package pt.isec.pd.client;
 
-import pt.isec.pd.common.User;
+import pt.isec.pd.common.entities.User;
 
 import java.time.LocalDate;
-import java.time.LocalTime;
 import java.util.List;
 
 public class ClientServiceMock implements ClientAPI {

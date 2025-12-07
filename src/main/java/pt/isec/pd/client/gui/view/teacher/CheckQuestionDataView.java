@@ -12,9 +12,9 @@ import javafx.scene.shape.SVGPath;
 import javafx.stage.FileChooser;
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
-import pt.isec.pd.common.StudentAnswerInfo;
-import pt.isec.pd.common.TeacherResultsData;
-import pt.isec.pd.common.User;
+import pt.isec.pd.common.dto.StudentAnswerInfo;
+import pt.isec.pd.common.dto.TeacherResultsData;
+import pt.isec.pd.common.entities.User;
 import pt.isec.pd.utils.FileManager;
 
 import java.io.File;
@@ -22,7 +22,6 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 public class CheckQuestionDataView extends BorderPane {

@@ -15,7 +15,7 @@ import javafx.stage.Stage;
 import pt.isec.pd.client.StateManager;
 import pt.isec.pd.client.gui.view.AboutQuestia;
 import pt.isec.pd.client.UserManager;
-import pt.isec.pd.common.User;
+import pt.isec.pd.common.entities.User;
 
 public class HeaderView extends BorderPane {
 

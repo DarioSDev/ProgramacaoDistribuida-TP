@@ -1,6 +1,11 @@
 package pt.isec.pd.server;
-import pt.isec.pd.client.ClientAPI;
-import pt.isec.pd.common.*;
+import pt.isec.pd.common.core.Command;
+import pt.isec.pd.common.core.Message;
+import pt.isec.pd.common.core.RoleType;
+import pt.isec.pd.common.dto.StudentHistory;
+import pt.isec.pd.common.dto.TeacherResultsData;
+import pt.isec.pd.common.entities.Question;
+import pt.isec.pd.common.entities.User;
 import pt.isec.pd.db.DatabaseManager;
 import pt.isec.pd.db.QueryPerformer;
 import java.io.*;
@@ -464,10 +469,16 @@ public class ServerService {
                         // [R17]
                         case LOGOUT -> responseMsg = new Message(Command.LOGOUT, "BYE");
                         case VALIDATE_QUESTION_CODE -> {
-                            if (msg.getData() instanceof String code) {
-                                String result = queryPerformer.validateQuestionCode(code);
-                                System.out.println("[Server] Pedido de validação do código: " + code + " → " + result);
+                            if (msg.getData() instanceof String[] parts && parts.length == 2) {
+                                String email = parts[0];
+                                String code = parts[1];
+
+                                String result = queryPerformer.validateQuestionCode(code, email);
+                                System.out.println("[Server] Validação (" + email + "): " + code + " -> " + result);
                                 out.writeObject(new Message(Command.VALIDATE_QUESTION_CODE, result));
+                                out.flush();
+                            } else {
+                                out.writeObject(new Message(Command.VALIDATE_QUESTION_CODE, "ERROR_INVALID_DATA"));
                                 out.flush();
                             }
                         }

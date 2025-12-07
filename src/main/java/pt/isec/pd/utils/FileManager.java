@@ -1,7 +1,7 @@
 package pt.isec.pd.utils;
 
-import pt.isec.pd.common.StudentAnswerInfo;
-import pt.isec.pd.common.TeacherResultsData;
+import pt.isec.pd.common.dto.StudentAnswerInfo;
+import pt.isec.pd.common.dto.TeacherResultsData;
 
 import java.io.File;
 import java.io.IOException;

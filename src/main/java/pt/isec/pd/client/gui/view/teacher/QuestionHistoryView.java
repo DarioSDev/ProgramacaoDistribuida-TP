@@ -11,9 +11,9 @@ import javafx.scene.paint.Color;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.SVGPath;
 import pt.isec.pd.client.*;
-import pt.isec.pd.common.Question;
-import pt.isec.pd.common.TeacherResultsData; // ⚠️ IMPORT CORRIGIDO
-import pt.isec.pd.common.User;
+import pt.isec.pd.common.entities.Question;
+import pt.isec.pd.common.dto.TeacherResultsData; // ⚠️ IMPORT CORRIGIDO
+import pt.isec.pd.common.entities.User;
 
 import java.io.IOException;
 import java.time.LocalDate;

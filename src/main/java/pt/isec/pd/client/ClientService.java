@@ -1,7 +1,14 @@
 package pt.isec.pd.client;
 
 import javafx.application.Platform;
-import pt.isec.pd.common.*;
+import pt.isec.pd.common.core.Command;
+import pt.isec.pd.common.core.Message;
+import pt.isec.pd.common.dto.StudentHistory;
+import pt.isec.pd.common.dto.TeacherResultsData;
+import pt.isec.pd.common.entities.Question;
+import pt.isec.pd.common.entities.Student;
+import pt.isec.pd.common.entities.Teacher;
+import pt.isec.pd.common.entities.User;
 
 import java.io.*;
 import java.net.*;
@@ -397,13 +404,14 @@ public class ClientService implements ClientAPI {
                 expectingResponse = true;
                 syncResponse = null;
 
-                out.writeObject(new Message(Command.VALIDATE_QUESTION_CODE, code));
+                String[] payload = new String[]{UserManager.getInstance().getUser().getEmail(), code};
+                out.writeObject(new Message(Command.VALIDATE_QUESTION_CODE, payload));
                 out.flush();
 
                 lock.wait(5000);
 
                 if (syncResponse instanceof Message m && m.getData() instanceof String res) {
-                    return res; // "VALID", "INVALID", "EXPIRED", etc.
+                    return res; // "VALID", "INVALID", "EXPIRED", "ALREADY_ANSWERED"
                 }
                 return "TIMEOUT";
             } catch (InterruptedException e) {

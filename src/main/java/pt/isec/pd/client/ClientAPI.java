@@ -1,10 +1,9 @@
 package pt.isec.pd.client;
 
-import jdk.jshell.spi.ExecutionControl;
-import pt.isec.pd.common.Question;
-import pt.isec.pd.common.StudentHistory;
-import pt.isec.pd.common.TeacherResultsData;
-import pt.isec.pd.common.User;
+import pt.isec.pd.common.entities.Question;
+import pt.isec.pd.common.dto.StudentHistory;
+import pt.isec.pd.common.dto.TeacherResultsData;
+import pt.isec.pd.common.entities.User;
 
 import java.io.IOException;
 import java.time.LocalDate;

@@ -13,7 +13,7 @@ import javafx.scene.shape.SVGPath;
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
 import pt.isec.pd.client.UserManager;
-import pt.isec.pd.common.User;
+import pt.isec.pd.common.entities.User;
 
 import java.io.IOException;
 
@@ -146,19 +146,25 @@ public class MenuStudentView extends BorderPane {
         }
 
         try {
+            // Valida o código no servidor
             String validation = client.validateQuestionCode(code.trim());
-            if (!"VALID".equals(validation)) {
-                showPopup("The code provided is invalid!");
-                return;
+
+            // [R24]
+            // [R25]
+            switch (validation) {
+                case "VALID" -> {
+                    stateManager.showQuestionView(UserManager.getInstance().getUser(), code.trim());
+                }
+                case "NOT_STARTED" -> showPopup("This question is scheduled for later.\nIt has not started yet.");
+                case "EXPIRED" -> showPopup("The time for this question has ended.\nIt is expired.");
+                case "INVALID" -> showPopup("The code provided does not exist.");
+                default -> showPopup("Unable to access question.\nReason: " + validation);
             }
+
         } catch (IOException ex) {
-            showPopup("An error occurred while validating the code.");
-            return;
+            showPopup("Connection error while validating code.");
+            ex.printStackTrace();
         }
-
-
-
-        stateManager.showQuestionView(UserManager.getInstance().getUser(), code.trim());
     }
 
     private void showPopup(String text) {

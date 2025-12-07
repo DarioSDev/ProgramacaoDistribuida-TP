@@ -1,5 +1,13 @@
 package pt.isec.pd.db;
-import pt.isec.pd.common.*;
+import pt.isec.pd.common.core.RoleType;
+import pt.isec.pd.common.dto.HistoryItem;
+import pt.isec.pd.common.dto.StudentAnswerInfo;
+import pt.isec.pd.common.dto.StudentHistory;
+import pt.isec.pd.common.dto.TeacherResultsData;
+import pt.isec.pd.common.entities.Question;
+import pt.isec.pd.common.entities.Student;
+import pt.isec.pd.common.entities.Teacher;
+import pt.isec.pd.common.entities.User;
 
 import java.sql.*;
 import java.time.LocalDate;
@@ -214,7 +222,7 @@ public class QueryPerformer {
         boolean isCorrect = false;
 
         // VERIFICAR A VALIDADE TEMPORAL
-        String validity = validateQuestionCode(code);
+        String validity = validateQuestionCode(code, studentEmail);
 
         // Se não for "VALID" (i.e., NOT_STARTED, EXPIRED, INVALID), bloqueia a submissão.
         if (!"VALID".equals(validity)) {
@@ -609,35 +617,53 @@ public class QueryPerformer {
         );
     }
 
-    // VALIDAR CÓDIGO DA PERGUNTA (Leitura)
-    public String validateQuestionCode(String code) {
-        String sql = "SELECT start_time, end_time FROM pergunta WHERE code = ?";
+    public String validateQuestionCode(String code, String studentEmail) {
+        String sqlQuery = "SELECT id, start_time, end_time FROM pergunta WHERE code = ?";
+        String sqlCheckAnswer = """
+            SELECT 1 FROM resposta r
+            JOIN pergunta p ON r.pergunta_id = p.id
+            WHERE p.code = ? AND r.estudante_email = ?
+        """;
 
         dbManager.getReadLock().lock();
-        try (Connection conn = dbManager.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+        try (Connection conn = dbManager.getConnection()) {
 
-            pstmt.setString(1, code);
-            ResultSet rs = pstmt.executeQuery();
+            String startStr = null, endStr = null;
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlQuery)) {
+                pstmt.setString(1, code);
+                ResultSet rs = pstmt.executeQuery();
 
-            if (!rs.next()) return "INVALID";
+                if (!rs.next()) return "INVALID"; // code not found
 
-            String startStr = rs.getString("start_time");
-            String endStr = rs.getString("end_time");
+                startStr = rs.getString("start_time");
+                endStr = rs.getString("end_time");
+            }
 
-            if (startStr == null || endStr == null) return "VALID";
+            // Validação Temporal
+            if (startStr != null && endStr != null) {
+                LocalDateTime start = LocalDateTime.parse(startStr, DATETIME_FORMATTER);
+                LocalDateTime end = LocalDateTime.parse(endStr, DATETIME_FORMATTER);
+                LocalDateTime now = LocalDateTime.now();
 
-            LocalDateTime start = LocalDateTime.parse(startStr, DATETIME_FORMATTER);
-            LocalDateTime end = LocalDateTime.parse(endStr, DATETIME_FORMATTER);
-            LocalDateTime now = LocalDateTime.now();
+                if (now.isBefore(start)) return "NOT_STARTED";
+                if (now.isAfter(end)) return "EXPIRED";
+            }
 
-            if (now.isBefore(start)) return "NOT_STARTED";
-            if (now.isAfter(end)) return "EXPIRED";
+            // 2. ALREADY_ANSWERED check
+            try (PreparedStatement pstmt = conn.prepareStatement(sqlCheckAnswer)) {
+                pstmt.setString(1, code);
+                pstmt.setString(2, studentEmail);
+                ResultSet rs = pstmt.executeQuery();
+
+                if (rs.next()) {
+                    return "ALREADY_ANSWERED";
+                }
+            }
 
             return "VALID";
 
         } catch (SQLException e) {
-            System.err.println("[DB] Erro ao validar código: " + e.getMessage());
+            System.err.println("[DB] Erro validateQuestionCode: " + e.getMessage());
             return "ERROR";
         } finally {
             dbManager.getReadLock().unlock();

@@ -1,4 +1,4 @@
-package pt.isec.pd.common;
+package pt.isec.pd.common.core;
 
 public enum Command {
     CONNECTION,
