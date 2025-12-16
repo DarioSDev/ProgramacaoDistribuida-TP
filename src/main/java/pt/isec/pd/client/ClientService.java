@@ -1,21 +1,26 @@
 package pt.isec.pd.client;
 
-import pt.isec.pd.common.User;
-import pt.isec.pd.common.Command;
+import javafx.application.Platform;
+import pt.isec.pd.common.core.Command;
+import pt.isec.pd.common.core.Message;
+import pt.isec.pd.common.dto.StudentHistory;
+import pt.isec.pd.common.dto.TeacherResultsData;
+import pt.isec.pd.common.entities.Question;
+import pt.isec.pd.common.entities.Student;
+import pt.isec.pd.common.entities.Teacher;
+import pt.isec.pd.common.entities.User;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import java.io.*;
 import java.net.*;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class ClientService implements ClientAPI {
-    private static final int MAX_SAME_SERVER_RETRY = 2;
-    private static final long SAME_SERVER_RETRY_DELAY_MS = 20000;
+    private static final long RECONN_DELAY_MS = 20000; // 20 segundos
     private static final int CONNECTION_TIMEOUT_MS = 5000;
 
     private final String directoryHost;
@@ -24,19 +29,16 @@ public class ClientService implements ClientAPI {
     private String currentServerIp = null;
     private int currentServerPort = -1;
 
-    private int sameServerFailureCount = 0;
-
     private Socket activeSocket = null;
-    private PrintWriter out = null;
-    private BufferedReader in = null;
+    private ObjectOutputStream out = null;
+    private ObjectInputStream in = null;
 
     private volatile boolean running = true;
+    private volatile boolean isAuthenticated = false;
 
-    // 🔒 Sincronização
     private final Object lock = new Object();
-    private String syncResponse = null;
+    private Object syncResponse = null;
     private boolean expectingResponse = false;
-
 
     public ClientService(String directoryHost, int directoryPort) {
         this.directoryHost = directoryHost;
@@ -44,15 +46,23 @@ public class ClientService implements ClientAPI {
     }
 
     public void start() {
-        System.out.println("[Client] Iniciando cliente REAL...");
+        System.out.println("[Client] Iniciando cliente REAL (Object Streams)...");
+
+        if (!tryConnectAndAuthenticate(false)) {
+            System.err.println("[Client] Falha na ligação inicial. A terminar.");
+            closeResources();
+            return;
+        }
 
         while (running) {
+            // Se a ligação caiu, tenta reconectar com lógica de failover (isReconnect = true)
             if (activeSocket == null || activeSocket.isClosed()) {
-                if (!tryConnectAndAuthenticate()) {
-                    System.err.println("[Client] Falha crítica. A terminar cliente.");
+                if (!tryConnectAndAuthenticate(true)) {
+                    System.err.println("[Client] Falha crítica na reconexão. A terminar cliente.");
                     break;
                 }
             }
+
             listenAndMaintainSession();
         }
 
@@ -60,123 +70,160 @@ public class ClientService implements ClientAPI {
         System.out.println("[Client] Cliente REAL encerrado.");
     }
 
-    private boolean tryConnectAndAuthenticate() {
+    private boolean tryConnectAndAuthenticate(boolean isReconnect) {
+        String oldIp = currentServerIp;
+        int oldPort = currentServerPort;
+        int attempts = isReconnect ? 2 : 1; // 1 tentativa para arranque, 2 para reconexão ao mesmo Primary
 
-        while (running) {
-            String[] serverInfo = requestActiveServer();
+        for (int attempt = 1; attempt <= attempts && running; attempt++) {
 
-            if (serverInfo == null) {
-                System.err.println("[Client] Nenhum servidor disponível. Tentando de novo...");
-                sameServerFailureCount = 0;
-                sleep(5000);
+            String[] info = requestActiveServer(); // Pede ao Directory o Primary atual
+
+            if (info == null) {
+                // Requisito: Se falhar na localização do Primary no arranque/reconexão, termina (a menos que seja o 20s delay)
+                if (!isReconnect) {
+                    return false;
+                } else if (attempt == attempts && oldPort == currentServerPort) {
+                    return false; // Última tentativa ao mesmo Primary
+                }
+                // No modo reconexão, se o Directory falhar temporariamente, damos 20s de tolerância.
+                System.out.println("[Client] Diretoria indisponível. Aguardando 20s...");
+                sleep(RECONN_DELAY_MS);
                 continue;
             }
 
-            String newIp = serverInfo[0];
-            int newPort = Integer.parseInt(serverInfo[1]);
+            String newIp = info[0];
+            int newPort = Integer.parseInt(info[1]);
 
-            boolean sameServer =
-                    newIp.equals(currentServerIp) && newPort == currentServerPort;
+            boolean isSamePrimary = (oldPort == newPort && oldIp != null && oldIp.equals(newIp));
 
-            if (sameServer && sameServerFailureCount >= 1) {
-                sameServerFailureCount++;
-
-                if (sameServerFailureCount > MAX_SAME_SERVER_RETRY) {
-                    System.err.println("[Client] Esgotadas tentativas para o mesmo servidor.");
+            // Cenário 1: Primary diferente (Reconexão Imediata - B)
+            if (isReconnect && !isSamePrimary) {
+                System.out.printf("[Client] Primary mudou para %s:%d. A tentar reconexão imediata...%n", newIp, newPort);
+                if (attemptTcpConnection(newIp, newPort)) {
+                    currentServerIp = newIp;
+                    currentServerPort = newPort;
+                    return true;
+                } else {
+                    // Requisito: Se falhar na ligação/autenticação ao novo Primary, termina.
+                    running = false;
                     return false;
                 }
-
-                System.out.printf("[Client] Mesmo servidor. Esperando %ds...\n",
-                        SAME_SERVER_RETRY_DELAY_MS / 1000);
-                sleep(SAME_SERVER_RETRY_DELAY_MS);
-                continue;
             }
 
+            // Cenário 2: Primary igual ou Arranque Inicial
+            System.out.printf("[Client] Tentativa %d/%d de ligação ao Primary %s:%d%n", attempt, attempts, newIp, newPort);
+
+            // [R11]
             if (attemptTcpConnection(newIp, newPort)) {
                 currentServerIp = newIp;
                 currentServerPort = newPort;
-                sameServerFailureCount = 0;
                 return true;
-            }
+            } else {
+                System.err.println("[Client] Ligação TCP ao Primary falhou ❌");
 
-            System.err.println("[Client] Falhou a ligação TCP. Marcando servidor como falhado.");
-            sameServerFailureCount = 1;
-            sleep(2000);
+                // Requisito C/D: Se falhar e for o mesmo Primary, deve tentar apenas mais uma vez após 20s.
+                if (isReconnect && isSamePrimary && attempt == 1) {
+                    System.out.println("[Client] Primary inativo! Aguardando 20s para tentar novamente...");
+                    sleep(RECONN_DELAY_MS); // Espera 20s antes da tentativa 2 (a última)
+                } else if (isReconnect && isSamePrimary && attempt == 2) {
+                    // Última falha ao mesmo Primary.
+                    running = false;
+                    return false;
+                } else if (!isReconnect) {
+                    // Falha na tentativa de arranque inicial (apenas 1 tentativa)
+                    running = false;
+                    return false;
+                }
+            }
         }
-        return false;
+        return false; // Nunca deve chegar aqui se o loop estiver bem gerido
     }
 
     private boolean attemptTcpConnection(String ip, int port) {
-
         closeResources();
-
         try {
             Socket socket = new Socket();
             socket.connect(new InetSocketAddress(ip, port), CONNECTION_TIMEOUT_MS);
 
-            out  = new PrintWriter(socket.getOutputStream(), true);
-            in   = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            out = new ObjectOutputStream(socket.getOutputStream());
+            out.flush();
+            in = new ObjectInputStream(socket.getInputStream());
 
-            String welcome = in.readLine();
-            if (welcome == null) return false;
-
-            if (welcome.startsWith("ERRO:")) {
-                socket.close();
-                return false;
-            }
-
-            System.out.println("[Client] Servidor: " + welcome);
-
-            // 3. Autenticação (ou primeira mensagem)
-            out.println(Command.CONNECTION);
-
-            System.out.println("[Client] Enviado: " + Command.CONNECTION);
-
-            // 4. Receber confirmação
-            String confirmation = in.readLine();
-            if (confirmation == null) return false;
+            try {
+                Object welcome = in.readObject();
+                System.out.println("[Client] Conectado: " + welcome);
+            } catch (EOFException ignore) {}
 
             activeSocket = socket;
             return true;
 
-        } catch (IOException e) {
+        } catch (IOException | ClassNotFoundException e) {
             System.err.println("[Client] Erro ao ligar TCP: " + e.getMessage());
             return false;
         }
     }
 
+    // [R7]
     private void listenAndMaintainSession() {
-        boolean hardFailure = false;
-
+        boolean lastConnectionFailed = false;
         try {
-            if (activeSocket != null) activeSocket.setSoTimeout(0);
+            if (activeSocket == null || activeSocket.isClosed()) {
+                return;
+            }
+
+            activeSocket.setSoTimeout(0);
 
             while (running && activeSocket != null && !activeSocket.isClosed()) {
-                String serverMsg = in.readLine();
+                Object received;
 
-                if (serverMsg == null) {
-                    System.out.println("[Client] Servidor fechou ligação.");
-                    break;
+                try {
+                    received = in.readObject();
+                } catch (SocketTimeoutException e) {
+                    // sem timeout configurado, não deve acontecer; se acontecer, ignora
+                    continue;
                 }
 
-                // 🔒 Lógica de Entrega da Mensagem
+                // [R7]
                 synchronized (lock) {
                     if (expectingResponse) {
-                        syncResponse = serverMsg;
+                        syncResponse = received;
                         expectingResponse = false;
-                        lock.notifyAll(); // Acorda a thread que está no wait()
+                        lock.notifyAll();
                     } else {
-                        // Caso contrário, é uma mensagem assíncrona (notificação)
-                        System.out.println("[Server Async] " + serverMsg);
+                        System.out.println("[Server Async Push] " + received);
                     }
                 }
             }
 
-        } catch (IOException e) {
+        } catch (EOFException e) {
+            System.out.println("[Client] Servidor fechou a ligação.");
+            lastConnectionFailed = true;
+            if (!this.isAuthenticated) {
+                System.err.println("[Client] Ligação encerrada antes da autenticação. A terminar aplicação.");
+                running = false;
+                Platform.runLater(() -> {
+                    Platform.exit();
+                    System.exit(0);
+                });
+            } else {
+                lastConnectionFailed = true;
+                this.isAuthenticated = false;
+            }
+        } catch (IOException | ClassNotFoundException e) {
             System.err.println("[Client] Conexão perdida: " + e.getMessage());
-            hardFailure = true;
+            if (!this.isAuthenticated) {
+                System.err.println("[Client] Ligação perdida antes da autenticação. A terminar aplicação.");
+                running = false;
+                Platform.runLater(() -> {
+                    Platform.exit();
+                    System.exit(0);
+                });
+            } else {
+                lastConnectionFailed = true;
+                this.isAuthenticated = false;
+            }
 
-            // Desbloquear quem estiver à espera em caso de erro
             synchronized (lock) {
                 syncResponse = null;
                 expectingResponse = false;
@@ -185,77 +232,74 @@ public class ClientService implements ClientAPI {
 
         } finally {
             closeResources();
-            sameServerFailureCount = hardFailure ? 1 : 0;
         }
     }
 
+    // [R9]
     private String[] requestActiveServer() {
         try (DatagramSocket socket = new DatagramSocket()) {
-
             byte[] buf = "REQUEST_SERVER".getBytes();
-            socket.send(new DatagramPacket(buf, buf.length,
-                    InetAddress.getByName(directoryHost), directoryPort));
-
+            socket.send(new DatagramPacket(buf, buf.length, InetAddress.getByName(directoryHost), directoryPort));
             socket.setSoTimeout(5000);
-
             byte[] recv = new byte[256];
             DatagramPacket packet = new DatagramPacket(recv, recv.length);
-
             socket.receive(packet);
-
             String response = new String(packet.getData(), 0, packet.getLength()).trim();
-
-            if (response.equals("NO_SERVER_AVAILABLE"))
-                return null;
-
-            String[] parts = response.split(" ");
-            if (parts.length == 2) return parts;
-
+            if (response.equals("NO_SERVER_AVAILABLE")) return null;
+            return response.split(" ");
         } catch (Exception e) {
-            System.err.println("[Client] Erro ao contactar Directory: " + e.getMessage());
+            return null;
         }
-
-        return null;
     }
 
     private void closeResources() {
         try { if (in != null) in.close(); } catch (Exception ignored) {}
         try { if (out != null) out.close(); } catch (Exception ignored) {}
         try { if (activeSocket != null) activeSocket.close(); } catch (Exception ignored) {}
-
         in = null;
         out = null;
         activeSocket = null;
     }
 
     private void sleep(long ms) {
-        try { TimeUnit.MILLISECONDS.sleep(ms); } catch (InterruptedException ignored) {}
+        try {
+            TimeUnit.MILLISECONDS.sleep(ms);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
     }
 
+    // ==========================
+    // Métodos da ClientAPI (os teus, intactos)
+    // ==========================
 
+    // [R15]
     @Override
     public String sendLogin(String email, String pwd) throws IOException {
-        if (out == null) throw new IOException("Ligação TCP não está ativa.");
+        if (out == null) throw new IOException("Sem ligação TCP.");
 
         synchronized (lock) {
             try {
                 expectingResponse = true;
                 syncResponse = null;
 
-                StringBuilder sb = new StringBuilder();
-                sb.append(Command.LOGIN).append(";").append(email).append(";").append(pwd);
-                out.println(sb.toString());
+                User loginUser = new User(null, email, pwd);
+                Message msg = new Message(Command.LOGIN, loginUser);
+                out.writeObject(msg);
+                out.flush();
 
-                // Esperar pela resposta (timeout de 5s para segurança)
                 lock.wait(5000);
 
-                if (syncResponse == null) {
-                    expectingResponse = false; // Cancelar espera se estourou o tempo
-                    return "TIMEOUT";
+                if (syncResponse instanceof Message responseMsg && responseMsg.getData() instanceof User u) {
+                    this.isAuthenticated = true;
+                    String role = u.getRole() != null ? u.getRole() : "student";
+                    String name = u.getName() != null ? u.getName() : email;
+                    String extra = u.getExtra() != null ? u.getExtra() : "";
+                    return "OK;" + role + ";" + name + ";" + extra;
                 }
 
-                System.out.println("RESPONSE LOGIN: " + syncResponse);
-                return syncResponse;
+                this.isAuthenticated = false;
+                return "LOGIN_FAILED";
 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -266,38 +310,32 @@ public class ClientService implements ClientAPI {
 
     @Override
     public boolean register(String role, String name, String id, String email, String password) throws IOException {
-        if (out == null) throw new IOException("Ligação TCP não está ativa.");
+        if (out == null) throw new IOException("Sem ligação TCP.");
 
         synchronized (lock) {
             try {
                 expectingResponse = true;
                 syncResponse = null;
 
-                StringBuilder sb = new StringBuilder();
-                // Ajusta o comando conforme o Enum (REGISTER_STUDENT ou TEACHER)
-                if ("student".equalsIgnoreCase(role)) {
-                    sb.append("REGISTER_STUDENT");
+                User newUser;
+                if ("Teacher".equalsIgnoreCase(role)) {
+                    newUser = new Teacher(name, email, password, id);
                 } else {
-                    sb.append("REGISTER_TEACHER");
+                    newUser = new Student(name, email, password, id);
                 }
+                newUser.setRole(role.toLowerCase());
 
-                sb.append(";").append(name)
-                .append(";").append(email)
-                .append(";").append(password)
-                .append(";").append(id);
+                Command cmd = "Teacher".equalsIgnoreCase(role) ? Command.REGISTER_TEACHER : Command.REGISTER_STUDENT;
 
-                out.println(sb.toString());
+                out.writeObject(new Message(cmd, newUser));
+                out.flush();
 
-                lock.wait(5000); // Espera 5s no máximo
+                lock.wait(5000);
 
-                if (syncResponse == null) {
-                    expectingResponse = false;
-                    return false;
-                }
+                if (syncResponse instanceof Boolean b) return b;
+                if (syncResponse instanceof Message m && m.getData() instanceof Boolean b) return b;
 
-                System.out.println("RESPONSE REGISTER: " + syncResponse);
-                // Verifica se a resposta contém sucesso (ajusta conforme o teu servidor responde)
-                return syncResponse.toUpperCase().contains("SUCCESS") || syncResponse.equalsIgnoreCase("true");
+                return false;
 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -306,50 +344,302 @@ public class ClientService implements ClientAPI {
         }
     }
 
-    // ===============================================================
-    // A PARTIR DAQUI: MÉTODOS A IMPLEMENTAR MAIS TARDE
-    // (por agora lançam UnsupportedOperationException para o TP REAL)
-    // ===============================================================
+    // [R18]
+    @Override
+    public QuestionResult createQuestion(User user, String text, List<String> options, String correctOption,
+                                         LocalDate sd, LocalTime st, LocalDate ed, LocalTime et) throws IOException {
+        if (out == null) throw new IOException("Sem ligação TCP.");
 
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                LocalDateTime start = LocalDateTime.of(sd, st);
+                LocalDateTime end = LocalDateTime.of(ed, et);
+
+                Question question = new Question(
+                        text,
+                        correctOption,
+                        options.toArray(new String[0]),
+                        start,
+                        end,
+                        user.getEmail()
+                );
+                System.out.println("A criar pergunta com ID local: " + question.getId());
+
+                out.writeObject(new Message(Command.CREATE_QUESTION, question));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse == null) {
+                    expectingResponse = false;
+                    return new QuestionResult(false, null);
+                }
+
+                if (syncResponse instanceof Boolean success) {
+                    return new QuestionResult(success, success ? question.getId() : null);
+                }
+
+                if (syncResponse instanceof Message m && m.getData() instanceof Boolean success) {
+                    return new QuestionResult(success, success ? question.getId() : null);
+                }
+
+                return new QuestionResult(false, null);
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return new QuestionResult(false, null);
+            }
+        }
+    }
+
+    @Override
+    public boolean editProfile(User user) throws IOException {
+        if (out == null) throw new IOException("Sem ligação TCP.");
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                out.writeObject(new Message(Command.EDIT_PROFILE, user));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse instanceof Boolean b) return b;
+                if (syncResponse instanceof Message m && m.getData() instanceof Boolean b) return b;
+
+                return false;
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+    }
+
+    @Override
+    public String validateQuestionCode(String code) throws IOException {
+        if (out == null) throw new IOException("Sem ligação TCP.");
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                String[] payload = new String[]{UserManager.getInstance().getUser().getEmail(), code};
+                out.writeObject(new Message(Command.VALIDATE_QUESTION_CODE, payload));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse instanceof Message m && m.getData() instanceof String res) {
+                    return res; // "VALID", "INVALID", "EXPIRED", "ALREADY_ANSWERED"
+                }
+                return "TIMEOUT";
+            } catch (InterruptedException e) {
+                return "ERROR";
+            }
+        }
+    }
+
+
+    // [R24] TODO APENAS PODE REQUISITAR A PERGUNTA DENTRO DO PRAZO
+    // [R25] TODO APENAS PODE REQUISITAR A PERGUNTA DENTRO DO PRAZO
     @Override
     public QuestionData getQuestionByCode(String code) {
-        throw new UnsupportedOperationException("getQuestionByCode ainda não implementado no ClientServiceReal.");
+        if (out == null) return null; // Devia lançar exceção, mas a interface retorna objeto
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                out.writeObject(new Message(Command.GET_QUESTION, code));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse instanceof Message m && m.getData() instanceof Question q) {
+                    // Converter objeto Question (comum) para QuestionData (record do cliente)
+                    return new QuestionData(q.getQuestion(), List.of(q.getOptions()));
+                }
+                return null;
+
+            } catch (Exception e) {
+                return null;
+            }
+        }
     }
 
     @Override
-    public boolean submitAnswer(User user, String code, int index) {
-        throw new UnsupportedOperationException("submitAnswer ainda não implementado no ClientServiceReal.");
+    public boolean submitAnswer(User user, String code, int index) throws IOException {
+        if (out == null) return false;
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                Object[] payload = new Object[]{user.getEmail(), code, index};
+
+                out.writeObject(new Message(Command.SUBMIT_ANSWER, payload));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse instanceof Message m && m.getData() instanceof Boolean b) {
+                    return b;
+                }
+                return false;
+
+            } catch (InterruptedException e) {
+                return false;
+            }
+        }
+    }
+
+    // [R21]
+    @Override
+    public List<Question> getTeacherQuestions(User user, String filter) throws IOException {
+        if (out == null) return new ArrayList<>();
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                // Envia o email do professor
+                out.writeObject(new Message(Command.GET_TEACHER_QUESTIONS, user.getEmail()));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse instanceof Message m && m.getData() instanceof List<?> list) {
+                    return (List<Question>) list;
+                }
+                return new ArrayList<>();
+
+            } catch (InterruptedException e) {
+                return new ArrayList<>();
+            }
+        }
+    }
+
+    // [R26] TODO APENAS DEVE CONSEGUIR CONSULTAR AS PERGUNTAS EXPIRADAS
+    @Override
+    public StudentHistory getStudentHistory(User user, LocalDate start, LocalDate end, String filter) throws IOException {
+        if (out == null) return null;
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                out.writeObject(new Message(Command.GET_STUDENT_HISTORY, user.getEmail()));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse instanceof Message m && m.getData() instanceof StudentHistory history) {
+                    return history;
+                }
+                return null;
+            } catch (InterruptedException e) {
+                return null;
+            }
+        }
+    }
+
+    // [R22]
+    @Override
+    public TeacherResultsData getQuestionResults(User user, String questionCode) {
+        if (out == null) return null;
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                out.writeObject(new Message(Command.GET_QUESTION_RESULTS, questionCode));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse instanceof Message m && m.getData() instanceof TeacherResultsData data) {
+                    System.out.println("[Client] Recebidos resultados para a questão " + questionCode);
+                    System.out.println("[Client] Recebidos resultados para a questão " + data);
+                    return data;
+                }
+                return null;
+            } catch (InterruptedException | IOException e) {
+                return null;
+            }
+        }
     }
 
     @Override
-    public String validateQuestionCode(String code) {
-        throw new UnsupportedOperationException("validateQuestionCode ainda não implementado no ClientServiceReal.");
+    public boolean editQuestion(Question q) throws IOException {
+        if (out == null) throw new IOException("Sem ligação TCP.");
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                out.writeObject(new Message(Command.EDIT_QUESTION, q));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse instanceof Boolean b) return b;
+                if (syncResponse instanceof Message m && m.getData() instanceof Boolean b) return b;
+
+                return false;
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+    }
+
+    // [R20] TODO APENAS DELETE SEM RESPOSTAS ASSOCIADAS
+    @Override
+    public boolean deleteQuestion(String questionId) {
+        if (out == null) return false;
+
+        synchronized (lock) {
+            try {
+                expectingResponse = true;
+                syncResponse = null;
+
+                out.writeObject(new Message(Command.DELETE_QUESTION, questionId));
+                out.flush();
+
+                lock.wait(5000);
+
+                if (syncResponse instanceof Boolean b) return b;
+                if (syncResponse instanceof Message m && m.getData() instanceof Boolean b) return b;
+
+                return false;
+
+            } catch (InterruptedException | IOException e) {
+                return false;
+            }
+        }
     }
 
     @Override
     public AnswerResultData getAnswerResult(User user, String code) {
-        throw new UnsupportedOperationException("getAnswerResult ainda não implementado no ClientServiceReal.");
+        return null;
     }
 
-    @Override
-    public List<HistoryItem> getStudentHistory(User user, LocalDate start, LocalDate end, String filter) {
-        throw new UnsupportedOperationException("getStudentHistory ainda não implementado no ClientServiceReal.");
-    }
-
-    @Override
-    public List<TeacherQuestionItem> getTeacherQuestions(User user, String filter) {
-        throw new UnsupportedOperationException("getTeacherQuestions ainda não implementado no ClientServiceReal.");
-    }
-
-    @Override
-    public boolean createQuestion(User user, String text, List<String> options,
-                                  int correctIndex, LocalDate sd, LocalTime st,
-                                  LocalDate ed, LocalTime et) {
-        throw new UnsupportedOperationException("createQuestion ainda não implementado no ClientServiceReal.");
-    }
-
-    @Override
-    public TeacherResultsData getQuestionResults(User user, String questionCode) {
-        throw new UnsupportedOperationException("getQuestionResults ainda não implementado no ClientServiceReal.");
+    public void stop() {
+        running = false;
+        closeResources();
     }
 }

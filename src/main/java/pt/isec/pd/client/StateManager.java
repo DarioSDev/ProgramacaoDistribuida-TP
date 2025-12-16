@@ -3,17 +3,21 @@ package pt.isec.pd.client;
 import javafx.scene.Scene;
 import javafx.scene.layout.StackPane;
 import javafx.stage.Stage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import pt.isec.pd.client.gui.view.*;
 import pt.isec.pd.client.gui.view.student.EditProfileStudentView;
 import pt.isec.pd.client.gui.view.student.MenuStudentView;
 import pt.isec.pd.client.gui.view.student.QuestionView;
 import pt.isec.pd.client.gui.view.student.StudentQuestionHistoryView;
 import pt.isec.pd.client.gui.view.teacher.*;
-import pt.isec.pd.common.Question;
-import pt.isec.pd.common.User;
+import pt.isec.pd.common.entities.Question;
+import pt.isec.pd.common.dto.TeacherResultsData;
+import pt.isec.pd.common.entities.User;
 
 public class StateManager {
 
+    private static final Logger log = LoggerFactory.getLogger(StateManager.class);
     private final Stage stage;
     private final ClientAPI client;
 
@@ -73,7 +77,7 @@ public class StateManager {
         setScene(new EditQuestionView(client, this, user, question), "Edit Question");
     }
 
-    public void showCheckQuestionDataView(User user, ClientAPI.TeacherResultsData results) {
+    public void showCheckQuestionDataView(User user, TeacherResultsData results) {
         setScene(new CheckQuestionDataView(client, this, user, results),
                 "Questia - Question Results");
     }
@@ -84,6 +88,10 @@ public class StateManager {
     }
 
     public void showMenu(User user) {
+        UserManager.getInstance()
+                .setUser(user)
+                .setRole(user.getRole())
+                .setLoggedIn(true);
         if ("teacher".equalsIgnoreCase(user.getRole()))
             showTeacherMenu(user);
         else if ("student".equalsIgnoreCase(user.getRole()))

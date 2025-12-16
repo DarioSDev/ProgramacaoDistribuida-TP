@@ -12,7 +12,10 @@ import javafx.scene.paint.Color;
 import javafx.scene.shape.SVGPath;
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
-import pt.isec.pd.common.User;
+import pt.isec.pd.client.UserManager;
+import pt.isec.pd.common.entities.User;
+
+import java.io.IOException;
 
 public class MenuStudentView extends BorderPane {
 
@@ -142,14 +145,26 @@ public class MenuStudentView extends BorderPane {
             return;
         }
 
-        String validation = client.validateQuestionCode(code.trim());
+        try {
+            // Valida o código no servidor
+            String validation = client.validateQuestionCode(code.trim());
 
-        if (!"VALID".equals(validation)) {
-            showPopup("The code provided is invalid!");
-            return;
+            // [R24]
+            // [R25]
+            switch (validation) {
+                case "VALID" -> {
+                    stateManager.showQuestionView(UserManager.getInstance().getUser(), code.trim());
+                }
+                case "NOT_STARTED" -> showPopup("This question is scheduled for later.\nIt has not started yet.");
+                case "EXPIRED" -> showPopup("The time for this question has ended.\nIt is expired.");
+                case "INVALID" -> showPopup("The code provided does not exist.");
+                default -> showPopup("Unable to access question.\n" + validation);
+            }
+
+        } catch (IOException ex) {
+            showPopup("Connection error while validating code.");
+            ex.printStackTrace();
         }
-
-        stateManager.showQuestionView(user, code.trim());
     }
 
     private void showPopup(String text) {

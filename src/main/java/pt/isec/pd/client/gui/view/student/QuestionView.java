@@ -12,8 +12,9 @@ import javafx.scene.paint.Color;
 import javafx.scene.shape.SVGPath;
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
-import pt.isec.pd.common.User;
+import pt.isec.pd.common.entities.User;
 
+import java.io.IOException;
 import java.util.List;
 
 public class QuestionView extends BorderPane {
@@ -77,6 +78,8 @@ public class QuestionView extends BorderPane {
         content.setPadding(new Insets(30, 60, 30, 60));
         content.setMaxWidth(1000);
 
+        // [R24] TODO APENAS PODE REQUISITAR A PERGUNTA DENTRO DO PRAZO
+        // [R25] TODO APENAS PODE REQUISITAR A PERGUNTA DENTRO DO PRAZO
         ClientAPI.QuestionData data = client.getQuestionByCode(code);
 
         String questionTextStr = (data != null ? data.text() : "Error loading question.");
@@ -132,10 +135,11 @@ public class QuestionView extends BorderPane {
 
         int index = selected.getText().charAt(0) - 'a';
 
-        boolean isCorrect = client.submitAnswer(user, code, index);
+        try {
+            boolean isCorrect = client.submitAnswer(user, code, index);
 
-        btnSubmit.setDisable(true);
-        btnSubmit.setStyle("""
+            btnSubmit.setDisable(true);
+            btnSubmit.setStyle("""
             -fx-background-color: #BDBDBD;
             -fx-text-fill: black;
             -fx-font-size: 16px;
@@ -145,26 +149,30 @@ public class QuestionView extends BorderPane {
             -fx-alignment: CENTER;
         """);
 
-        showSubmittedPopup(isCorrect);
+            showSubmittedPopup();
+        } catch (IOException e) {
+            System.out.println("Error submitting answer: " + e.getMessage());
+        }
+
     }
 
-    private void showSubmittedPopup(boolean isCorrect) {
+    private void showSubmittedPopup() {
         StackPane overlay = new StackPane();
         overlay.setStyle("-fx-background-color: rgba(0,0,0,0.45);");
 
         VBox box = new VBox(15);
         box.setAlignment(Pos.CENTER);
         box.setPadding(new Insets(20));
-        box.setPrefSize(360, 150);
-        box.setMaxSize(360, 150);
+        box.setPrefSize(400, 150);
+        box.setMaxSize(400, 150);
 
         box.setStyle("""
-                -fx-background-color: #D9D9D9;
-                -fx-background-radius: 14;
-                -fx-border-color: #FF7A00;
-                -fx-border-width: 3;
-                -fx-border-radius: 14;
-        """);
+            -fx-background-color: #D9D9D9;
+            -fx-background-radius: 14;
+            -fx-border-color: #FF7A00;
+            -fx-border-width: 3;
+            -fx-border-radius: 14;
+    """);
 
         SVGPath check = new SVGPath();
         check.setContent("M16 2.66675C8.636 2.66675 2.66675 8.636 2.66675 16C2.66675 23.364 8.636 29.3333 16 29.3333C23.364 29.3333 29.3333 23.364 29.3333 16C29.3333 8.636 23.364 2.66675 16 2.66675ZM14.4 22.4L9.46675 17.4667L11.3334 15.6L14.2667 18.5334L22 10.4L24 12.4L14.4 22.4Z");
@@ -172,8 +180,9 @@ public class QuestionView extends BorderPane {
         check.setScaleX(0.8);
         check.setScaleY(0.8);
 
-        Label msg = new Label("Answer Submitted!");
-        msg.setStyle("-fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: black;");
+        Label msg = new Label("Answer submitted. Click to go back to main menu");
+        msg.setWrapText(true);
+        msg.setStyle("-fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: black; -fx-alignment: center;");
 
         box.getChildren().addAll(check, msg);
         overlay.getChildren().add(box);
@@ -182,54 +191,7 @@ public class QuestionView extends BorderPane {
         overlay.setOnMouseClicked(e -> {
             if (e.getTarget() == overlay) {
                 root.getChildren().remove(overlay);
-                showResultPopup(isCorrect);
-            }
-        });
-    }
-
-    private void showResultPopup(boolean isCorrect) {
-        StackPane overlay = new StackPane();
-        overlay.setStyle("-fx-background-color: rgba(0,0,0,0.6);");
-
-        VBox box = new VBox(15);
-        box.setAlignment(Pos.CENTER);
-        box.setPadding(new Insets(20));
-        box.setPrefSize(360, 150);
-        box.setMaxSize(360, 150);
-
-        box.setStyle("""
-            -fx-background-color: #D9D9D9;
-            -fx-background-radius: 14;
-            -fx-border-color: #FF7A00;
-            -fx-border-width: 3;
-            -fx-border-radius: 14;
-        """);
-
-        SVGPath icon = new SVGPath();
-        Label msg = new Label();
-
-        if (isCorrect) {
-            icon.setContent(SVG_CHECK_CIRCLE);
-            icon.setFill(Color.GREEN);
-            msg.setText("Correct Answer!");
-        } else {
-            icon.setContent(SVG_CROSS_CIRCLE);
-            icon.setFill(Color.RED);
-            msg.setText("Wrong Answer!");
-        }
-
-        icon.setScaleX(1.5);
-        icon.setScaleY(1.5);
-
-        msg.setStyle("-fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: black; -fx-padding: 10 0 0 0;");
-
-        box.getChildren().addAll(icon, msg);
-        overlay.getChildren().add(box);
-        root.getChildren().add(overlay);
-
-        overlay.setOnMouseClicked(e -> {
-            if (e.getTarget() == overlay) {
-                root.getChildren().remove(overlay);
+                stateManager.showStudentMenu(user);
             }
         });
     }

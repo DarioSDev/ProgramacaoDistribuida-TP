@@ -1,5 +1,6 @@
 package pt.isec.pd.client.gui.view.teacher;
 
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Cursor;
@@ -9,11 +10,12 @@ import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.SVGPath;
-import pt.isec.pd.client.ClientAPI;
-import pt.isec.pd.client.StateManager;
-import pt.isec.pd.common.Question;
-import pt.isec.pd.common.User;
+import pt.isec.pd.client.*;
+import pt.isec.pd.common.entities.Question;
+import pt.isec.pd.common.dto.TeacherResultsData; // ⚠️ IMPORT CORRIGIDO
+import pt.isec.pd.common.entities.User;
 
+import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -87,8 +89,32 @@ public class QuestionHistoryView extends BorderPane {
 
         this.setCenter(root);
 
-        loadMockData();
+        loadData();
         applyFilters();
+        updateFilterVisuals();
+    }
+
+    private void loadData() {
+        allItems.clear();
+        // Thread para não bloquear a UI
+        new Thread(() -> {
+            try {
+                List<Question> questions = client.getTeacherQuestions(user, null);
+
+                Platform.runLater(() -> {
+                    for (Question q : questions) {
+                        allItems.add(new QuestionItem(q));
+                    }
+                    applyFilters();
+                });
+            } catch (IOException e) {
+                e.printStackTrace();
+                Platform.runLater(() -> {
+                    Alert alert = new Alert(Alert.AlertType.ERROR, "Erro ao carregar histórico: " + e.getMessage());
+                    alert.show();
+                });
+            }
+        }).start();
     }
 
     private BorderPane createCenterContent() {
@@ -243,6 +269,26 @@ public class QuestionHistoryView extends BorderPane {
         return wrapper;
     }
 
+    // ⚠️ Método Auxiliar para ir buscar os dados (Thread separada)
+    private void fetchAndShowResults(Question q) {
+        new Thread(() -> {
+            try {
+                TeacherResultsData data = client.getQuestionResults(user, q.getId());
+
+                Platform.runLater(() -> {
+                    if (data != null) {
+                        stateManager.showCheckQuestionDataView(user, data);
+                    } else {
+                        Alert alert = new Alert(Alert.AlertType.ERROR, "Erro ao obter resultados da pergunta.");
+                        alert.show();
+                    }
+                });
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
     private void renderRows(List<QuestionItem> items) {
         rowsBox.getChildren().clear();
 
@@ -264,13 +310,19 @@ public class QuestionHistoryView extends BorderPane {
             row.setMinHeight(30);
             row.setMaxWidth(Double.MAX_VALUE);
 
+            // Data
             Label date = new Label(q.getStartTime().toLocalDate().format(DateTimeFormatter.ofPattern("dd/MM/yyyy")));
             date.setStyle("-fx-text-fill:white; -fx-font-size:12px;");
             row.getChildren().add(createCell(date, W_DATE, Pos.CENTER_LEFT));
 
+            // Pergunta
             Label text = new Label(truncate(q.getQuestion(), 25));
             text.setStyle("-fx-text-fill:white; -fx-font-size:12px;");
             text.setCursor(Cursor.HAND);
+
+            Tooltip tooltip = new Tooltip(q.getId());
+            tooltip.setStyle("-fx-font-size: 14px;");
+            Tooltip.install(text, tooltip);
 
             text.setOnMouseClicked(e -> {
                 e.consume();
@@ -279,24 +331,26 @@ public class QuestionHistoryView extends BorderPane {
 
             row.getChildren().add(createCell(text, W_QUESTION, Pos.CENTER_LEFT));
 
+            // Estado (Bolinha)
             Circle dot = new Circle(5);
             dot.setFill(getStatusColor(q));
             row.getChildren().add(createCell(dot, W_ACTIVE, Pos.CENTER));
 
-            Label answers = new Label(Integer.toString(item.results.totalAnswers()));
+            // Total de Respostas
+            Label answers = new Label(Integer.toString(item.question.getTotalAnswers()));
             answers.setStyle("-fx-text-fill:white; -fx-font-size:12px;");
             answers.setCursor(Cursor.HAND);
 
             answers.setOnMouseClicked(e -> {
                 e.consume();
-                stateManager.showCheckQuestionDataView(user, item.results);
+                fetchAndShowResults(q);
             });
 
             StackPane answersCell = createCell(answers, W_ANSWERS, Pos.CENTER);
 
             answersCell.setOnMouseClicked(e -> {
                 e.consume();
-                stateManager.showCheckQuestionDataView(user, item.results);
+                fetchAndShowResults(q);
             });
 
             row.getChildren().add(answersCell);
@@ -372,11 +426,10 @@ public class QuestionHistoryView extends BorderPane {
         VBox radiosBox = new VBox(8, rowActive, rowFuture, rowExpired);
         radiosBox.setAlignment(Pos.TOP_LEFT);
 
-        updateFilterVisuals();
-
         panel.getChildren().addAll(filtersTitle, dateBox, radiosBox);
         return panel;
     }
+
 
     private HBox createFilterRow(Status status, Circle dot, Label label) {
         HBox row = new HBox(10, dot, label);
@@ -467,53 +520,6 @@ public class QuestionHistoryView extends BorderPane {
         return svg;
     }
 
-    private void loadMockData() {
-        LocalDate base = LocalDate.now();
-
-        for (int i = 0; i < 20; i++) {
-
-            LocalDateTime start = base.atTime(0, 0).plusMinutes(i * 30);
-            LocalDateTime end = base.atTime(23, 59);
-
-            String questionId = String.valueOf(i + 1);
-
-            Question q = new Question(
-                    "Pergunta " + (i + 1) + ": Qual é o package introduzido no Java?",
-                    "a",
-                    new String[]{"java.net.http", "javax.http.client", "org.apache.http", "javax.net.ssl"},
-                    start,
-                    end,
-                    questionId
-            );
-
-            List<ClientAPI.StudentAnswerInfo> answers = new ArrayList<>();
-            for (int s = 1; s <= 15; s++) {
-                char ans = (char) ('a' + (s % 4));
-                boolean correct = (ans == 'a');
-
-                answers.add(new ClientAPI.StudentAnswerInfo(
-                        "Aluno " + s,
-                        "aluno" + s + "@isec.pt",
-                        String.valueOf(ans),
-                        correct
-                ));
-            }
-
-            ClientAPI.TeacherResultsData results =
-                    new ClientAPI.TeacherResultsData(
-                            q.getQuestion(),
-                            List.of("java.net.http", "javax.http.client", "org.apache.http", "javax.net.ssl"),
-                            "a",
-                            answers.size(),
-                            answers
-                    );
-
-            allItems.add(new QuestionItem(q, results));
-        }
-    }
-
-
-
     private void applyFilters() {
         LocalDate startFilter = parseDate(startDateField.getText());
         LocalDate endFilter = parseDate(endDateField.getText());
@@ -595,11 +601,8 @@ public class QuestionHistoryView extends BorderPane {
 
     private static class QuestionItem {
         final Question question;
-        final ClientAPI.TeacherResultsData results;
-
-        QuestionItem(Question question, ClientAPI.TeacherResultsData results) {
+        QuestionItem(Question question) {
             this.question = question;
-            this.results = results;
         }
     }
 

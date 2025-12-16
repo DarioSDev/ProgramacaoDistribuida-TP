@@ -7,7 +7,7 @@ import javafx.scene.paint.Color;
 import javafx.scene.shape.SVGPath;
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
-import pt.isec.pd.common.User;
+import pt.isec.pd.common.entities.User;
 
 public class MenuTeacherView extends BorderPane {
 

@@ -1,5 +1,6 @@
 package pt.isec.pd.client.gui.view.student;
 
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Cursor;
@@ -11,14 +12,14 @@ import javafx.scene.shape.Circle;
 import javafx.scene.shape.SVGPath;
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
-import pt.isec.pd.common.Question;
-import pt.isec.pd.common.User;
+import pt.isec.pd.common.dto.HistoryItem;
+import pt.isec.pd.common.dto.StudentHistory;
+import pt.isec.pd.common.entities.User;
 
+import java.io.IOException;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 public class StudentQuestionHistoryView extends BorderPane {
@@ -41,6 +42,7 @@ public class StudentQuestionHistoryView extends BorderPane {
     private static final String SVG_ARROW_DOWN = "M8.48877 10.0845C8.04346 10.0845 7.63525 9.90204 7.26416 9.53713L0.408936 2.51418C0.272869 2.37192 0.167727 2.2173 0.0935078 2.05031C0.0254737 1.87713 -0.00854492 1.69159 -0.00854492 1.49367C-0.00854492 1.21535 0.0563819 0.964861 0.186264 0.742205C0.322332 0.513368 0.501694 0.334008 0.72435 0.204126C0.947006 0.0680589 1.19439 0 1.46654 0C1.88092 0 2.24582 0.157746 2.56125 0.473176L8.87889 6.97659H8.12742L15.4365 0.473176C15.7519 0.157746 16.1137 0 16.5219 0C16.7941 0 17.0415 0.0680589 17.2641 0.204126C17.4868 0.334008 17.6661 0.513368 17.796 0.742205C17.9321 0.964861 18 1.21535 18 1.49367C18 1.89569 17.8608 2.23586 17.5825 2.51418L10.7266 9.53713C10.541 9.72268 10.3493 9.85875 10.1513 9.94534C9.95341 10.0319 9.74003 10.0783 9.51121 10.0845Z";
     private static final String SVG_BACK = "M0 8.50732C0 8.06201 0.182454 7.65381 0.547363 7.28271L7.57031 0.41748C7.71257 0.281413 7.86719 0.17627 8.03418 0.102051C8.20736 0.0340169 8.3929 0 8.59082 0C8.86914 0 9.11963 0.0649414 9.34229 0.194824C9.57113 0.330892 9.75049 0.510254 9.88037 0.73291C10.0164 0.955566 10.0845 1.20296 10.0845 1.4751C10.0845 1.88949 9.92676 2.25439 9.61133 2.56982L3.10791 8.8877V8.13623L9.61133 14.4355C9.92676 14.751 10.0845 15.1128 10.0845 15.521C10.0845 15.7931 10.0164 16.0405 9.88037 16.2632C9.75049 16.4858 9.57113 16.6621 9.34229 16.792C9.11963 16.9281 8.86914 16.9961 8.59082 16.9961C8.1888 16.9961 7.84863 16.8569 7.57031 16.5786L0.547363 9.72266C0.361816 9.53711 0.225749 9.34538 0.13916 9.14746C0.0525716 8.94954 0.0061849 8.73617 0 8.50732Z";
     private static final String SVG_CHECK_CIRCLE = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z";
+    private static final String SVG_CROSS_CIRCLE = "M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z";
 
     private final VBox rowsBox = new VBox(0);
     private final TextField startDateField = new TextField();
@@ -61,7 +63,7 @@ public class StudentQuestionHistoryView extends BorderPane {
     private final StackPane centerWrapper;
     private final BorderPane mainContent;
 
-    private final List<StudentHistoryItem> allItems = new ArrayList<>();
+    private final List<HistoryItem> allItems = new ArrayList<>();
 
     public StudentQuestionHistoryView(ClientAPI client, StateManager stateManager, User user) {
         this.client = client;
@@ -90,8 +92,27 @@ public class StudentQuestionHistoryView extends BorderPane {
 
         this.setCenter(root);
 
-        loadMockData();
-        applyFilters();
+        loadData();
+    }
+
+    private void loadData() {
+        allItems.clear();
+        new Thread(() -> {
+            try {
+                // [R26] TODO APENAS DEVE CONSEGUIR CONSULTAR AS PERGUNTAS EXPIRADAS
+                StudentHistory historyObj = client.getStudentHistory(user, null, null, null);
+
+                Platform.runLater(() -> {
+                    if (historyObj != null && historyObj.getItems() != null) {
+                        allItems.addAll(historyObj.getItems());
+                        applyFilters();
+                        updateFilterVisuals();
+                    }
+                });
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }).start();
     }
 
     private BorderPane createCenterContent() {
@@ -130,89 +151,112 @@ public class StudentQuestionHistoryView extends BorderPane {
         return root;
     }
 
-    private VBox createDetailView(StudentHistoryItem item) {
+    private VBox createDetailView(HistoryItem item) {
         VBox content = new VBox(25);
         content.setAlignment(Pos.TOP_LEFT);
         content.setPadding(new Insets(20, 40, 20, 40));
         content.setMaxWidth(1000);
 
-        Question q = item.question;
-        String correctAns = q.getCorrectOption();
-
         Label title = new Label("Question Details");
         title.setStyle("-fx-text-fill: white; -fx-font-size: 22px; -fx-font-weight: bold;");
 
-        Label questionText = new Label(q.getQuestion());
+        // Pergunta
+        VBox qBox = new VBox(8);
+        Label qLbl = new Label("Question:");
+        qLbl.setStyle("-fx-text-fill: " + COLOR_PRIMARY + "; -fx-font-size: 14px; -fx-font-weight: bold;");
+        Label questionText = new Label(item.getQuestionText());
         questionText.setWrapText(true);
         questionText.setMaxWidth(840);
-        questionText.setStyle("-fx-text-fill: white; -fx-font-size: 16px; -fx-padding: 0 0 0 0;");
+        questionText.setStyle("-fx-text-fill: white; -fx-font-size: 16px;");
+        qBox.getChildren().addAll(qLbl, questionText);
 
-        VBox optionsBox = new VBox(15);
-        List<String> options = Arrays.asList(q.getOptions());
+        // Opções
+        VBox optionsBox = new VBox(12);
+        List<String> options = item.getOptions();
+        String correctLetter = item.getCorrectOption();
+        String studentLetter = item.getStudentOption();
 
-        for (int i = 0; i < options.size(); i++) {
-            String optionText = options.get(i);
-            char optionChar = (char) ('a' + i);
-            String optionCharStr = String.valueOf(optionChar);
+        if (options != null) {
+            for (int i = 0; i < options.size(); i++) {
+                String text = options.get(i);
+                String currentLetter = String.valueOf((char)('a' + i));
 
-            boolean isCorrect = optionCharStr.equalsIgnoreCase(correctAns);
+                boolean isCorrect = currentLetter.equalsIgnoreCase(correctLetter);
+                boolean isSelected = currentLetter.equalsIgnoreCase(studentLetter);
 
-            HBox row = new HBox(15);
-            row.setAlignment(Pos.CENTER_LEFT);
-            row.setPadding(new Insets(10));
+                HBox row = new HBox(15);
+                row.setAlignment(Pos.CENTER_LEFT);
+                row.setPadding(new Insets(12, 15, 12, 15));
+                row.setMaxWidth(840);
 
-            if (isCorrect) {
-                row.setStyle("-fx-background-color: rgba(40, 167, 69, 0.2); -fx-background-radius: 8; -fx-border-color: #28a745; -fx-border-radius: 8;");
-            } else {
-                row.setStyle("-fx-background-color: #2E2E2E; -fx-background-radius: 8;");
+                if (isCorrect) {
+                    row.setStyle("""
+                        -fx-background-color: rgba(40, 167, 69, 0.20); 
+                        -fx-border-color: #28a745; 
+                        -fx-border-radius: 8; 
+                        -fx-background-radius: 8;
+                    """);
+                } else if (isSelected && !item.isCorrect()) {
+                    row.setStyle("""
+                        -fx-background-color: rgba(220, 53, 69, 0.20); 
+                        -fx-border-color: #dc3545; 
+                        -fx-border-radius: 8; 
+                        -fx-background-radius: 8;
+                    """);
+                } else {
+                    row.setStyle("-fx-background-color: #2A2A2A; -fx-background-radius: 8;");
+                }
+
+                // Ícone
+                Node icon;
+                if (isCorrect) {
+                    SVGPath check = new SVGPath();
+                    check.setContent(SVG_CHECK_CIRCLE);
+                    check.setFill(Color.web("#28a745"));
+                    check.setScaleX(1.3); check.setScaleY(1.3);
+                    icon = check;
+                } else if (isSelected) {
+                    SVGPath cross = new SVGPath();
+                    cross.setContent(SVG_CROSS_CIRCLE);
+                    cross.setFill(Color.web("#dc3545"));
+                    cross.setScaleX(1.3); cross.setScaleY(1.3);
+                    icon = cross;
+                } else {
+                    Circle c = new Circle(9);
+                    c.setFill(Color.TRANSPARENT);
+                    c.setStroke(Color.GRAY);
+                    c.setStrokeWidth(2);
+                    icon = c;
+                }
+
+                Label lblOption = new Label(currentLetter + ") " + text);
+                lblOption.setStyle("-fx-text-fill: white; -fx-font-size: 14px;");
+                lblOption.setWrapText(true);
+
+                row.getChildren().addAll(icon, lblOption);
+                optionsBox.getChildren().add(row);
             }
-
-            Node icon;
-            if (isCorrect) {
-                SVGPath check = new SVGPath();
-                check.setContent(SVG_CHECK_CIRCLE);
-                check.setFill(Color.web("#28a745"));
-                check.setScaleX(1.2);
-                check.setScaleY(1.2);
-                icon = check;
-            } else {
-                Circle c = new Circle(8);
-                c.setFill(Color.TRANSPARENT);
-                c.setStroke(Color.GRAY);
-                c.setStrokeWidth(2);
-                icon = c;
-            }
-
-            Label lblOpt = new Label(optionChar + ") " + optionText);
-            lblOpt.setStyle("-fx-text-fill: white; -fx-font-size: 14px;");
-            lblOpt.setWrapText(true);
-
-            row.getChildren().addAll(icon, lblOpt);
-            optionsBox.getChildren().add(row);
         }
 
-        Button btnBackToList = new Button("Back");
-        styleBackButton(btnBackToList);
-
-        btnBackToList.setOnAction(e -> {
+        Button btnBack = new Button("Back");
+        styleBackButton(btnBack);
+        btnBack.setOnAction(e -> {
             centerWrapper.getChildren().clear();
             centerWrapper.getChildren().add(mainContent);
         });
 
-        HBox btnBox = new HBox(btnBackToList);
-        btnBox.setAlignment(Pos.CENTER);
-        btnBox.setPadding(new Insets(40, 0, 0, 0));
+        HBox btnContainer = new HBox(btnBack);
+        btnContainer.setAlignment(Pos.CENTER);
+        btnContainer.setPadding(new Insets(20, 0, 0, 0));
 
-        content.getChildren().addAll(title, questionText, optionsBox, btnBox);
+        content.getChildren().addAll(title, qBox, optionsBox, btnContainer);
         return content;
     }
 
-    private void showQuestionDetail(StudentHistoryItem item) {
+    private void showQuestionDetail(HistoryItem item) {
         VBox detailView = createDetailView(item);
-
         centerWrapper.getChildren().clear();
         centerWrapper.getChildren().add(detailView);
-
         StackPane.setAlignment(detailView, Pos.TOP_CENTER);
         StackPane.setMargin(detailView, new Insets(20, 0, 40, 0));
     }
@@ -225,6 +269,20 @@ public class StudentQuestionHistoryView extends BorderPane {
             -fx-border-width: 1.5;
             -fx-border-radius: 6;
         """);
+
+        HBox header = new HBox(0);
+        header.setAlignment(Pos.CENTER_LEFT);
+
+        Label dateH = createHeaderLabel("Date", W_DATE, Pos.CENTER_LEFT);
+        Label questH = createHeaderLabel("Question", W_QUESTION, Pos.CENTER_LEFT);
+
+        header.getChildren().addAll(
+                addRightBorder(dateH, W_DATE),
+                questH
+        );
+
+        VBox titleHeader = new VBox(header);
+        titleHeader.setStyle("-fx-background-color: transparent; -fx-border-color: #FF7A00; -fx-border-width: 0 0 1.5 0;");
 
         rowsBox.setFillWidth(true);
         rowsBox.setStyle("-fx-background-color: transparent;");
@@ -310,13 +368,13 @@ public class StudentQuestionHistoryView extends BorderPane {
         contentRow.setMinHeight(TABLE_HEIGHT);
         HBox.setHgrow(contentRow, Priority.ALWAYS);
 
-        wrapper.getChildren().addAll(contentRow);
+        wrapper.getChildren().addAll(titleHeader, contentRow);
         wrapper.setMaxWidth(W_TOTAL);
 
         return wrapper;
     }
 
-    private void renderRows(List<StudentHistoryItem> items) {
+    private void renderRows(List<HistoryItem> items) {
         rowsBox.getChildren().clear();
 
         if (items.isEmpty()) {
@@ -329,9 +387,7 @@ public class StudentQuestionHistoryView extends BorderPane {
             return;
         }
 
-        for (StudentHistoryItem item : items) {
-            Question q = item.question;
-
+        for (HistoryItem item : items) {
             HBox row = new HBox(0);
             row.setAlignment(Pos.CENTER_LEFT);
             row.setMinHeight(30);
@@ -343,22 +399,45 @@ public class StudentQuestionHistoryView extends BorderPane {
             row.setOnMouseEntered(e -> row.setStyle("-fx-background-color: #333333;"));
             row.setOnMouseExited(e -> row.setStyle("-fx-background-color: transparent;"));
 
-            String dateStr = q.getStartTime().toLocalDate().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+            String dateStr = (item.getDate() != null) ? item.getDate().format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) : "N/A";
             Label date = new Label(dateStr);
             date.setStyle("-fx-text-fill: " + COLOR_PRIMARY + "; -fx-font-size:12px;");
             row.getChildren().add(createCell(date, W_DATE, Pos.CENTER_LEFT));
 
-            String questionText = truncate(q.getQuestion(), 45);
+            String questionText = truncate(item.getQuestionText(), 45);
             Label text = new Label(questionText);
-            text.setStyle("-fx-text-fill: " + COLOR_PRIMARY + "; -fx-font-size:12px;");
 
-            Tooltip tp = new Tooltip(q.getQuestion());
+            // Cor consoante acertou ou não
+            if (item.isCorrect()) {
+                text.setStyle("-fx-text-fill: #28a745; -fx-font-size:12px;");
+            } else {
+                text.setStyle("-fx-text-fill: red; -fx-font-size:12px;");
+            }
+
+            Tooltip tp = new Tooltip(item.getQuestionText());
             Tooltip.install(text, tp);
 
             row.getChildren().add(createCell(text, W_QUESTION, Pos.CENTER_LEFT));
 
             rowsBox.getChildren().add(row);
         }
+    }
+
+    private void applyFilters() {
+        LocalDate startFilter = parseDate(startDateField.getText());
+        LocalDate endFilter = parseDate(endDateField.getText());
+
+        List<HistoryItem> filtered = allItems.stream().filter(item -> {
+            if (startFilter != null && (item.getDate() == null || item.getDate().isBefore(startFilter))) return false;
+            if (endFilter != null && (item.getDate() == null || item.getDate().isAfter(endFilter))) return false;
+            return switch (currentFilter) {
+                case ALL -> true;
+                case CORRECT -> item.isCorrect();
+                case WRONG -> !item.isCorrect();
+            };
+        }).toList();
+
+        renderRows(filtered);
     }
 
     private VBox createFiltersPanel() {
@@ -382,8 +461,6 @@ public class StudentQuestionHistoryView extends BorderPane {
 
         VBox radiosBox = new VBox(8, rowAll, rowCorrect, rowWrong);
         radiosBox.setAlignment(Pos.TOP_LEFT);
-
-        updateFilterVisuals();
 
         panel.getChildren().addAll(filtersTitle, dateBox, radiosBox);
         return panel;
@@ -423,24 +500,6 @@ public class StudentQuestionHistoryView extends BorderPane {
         }
     }
 
-    private void applyFilters() {
-        LocalDate startFilter = parseDate(startDateField.getText());
-        LocalDate endFilter = parseDate(endDateField.getText());
-
-        List<StudentHistoryItem> filtered = allItems.stream().filter(item -> {
-            Question q = item.question;
-            if (startFilter != null && q.getStartTime().toLocalDate().isBefore(startFilter)) return false;
-            if (endFilter != null && q.getEndTime().toLocalDate().isAfter(endFilter)) return false;
-            return switch (currentFilter) {
-                case ALL -> true;
-                case CORRECT -> item.isCorrect;
-                case WRONG -> !item.isCorrect;
-            };
-        }).toList();
-
-        renderRows(filtered);
-    }
-
     private Region createGridCol(double width, boolean borderRight) {
         Region r = new Region();
         r.setPrefWidth(width);
@@ -449,6 +508,25 @@ public class StudentQuestionHistoryView extends BorderPane {
             r.setStyle("-fx-border-color: #FF7A00; -fx-border-width: 0 1.5 0 0;");
         }
         return r;
+    }
+
+    private Label createHeaderLabel(String text, double width, Pos alignment) {
+        Label lbl = new Label(text);
+        lbl.setPrefWidth(width);
+        lbl.setMaxWidth(width);
+        lbl.setAlignment(alignment);
+        if (alignment == Pos.CENTER_LEFT) lbl.setPadding(new Insets(0, 0, 0, 10));
+        lbl.setStyle("-fx-text-fill: white; -fx-font-size: 12px; -fx-font-weight: bold;");
+        return lbl;
+    }
+
+    private StackPane addRightBorder(Node node, double width) {
+        StackPane p = new StackPane(node);
+        p.setPrefWidth(width);
+        p.setMinWidth(width);
+        p.setMaxWidth(width);
+        p.setStyle("-fx-border-color: #FF7A00; -fx-border-width: 0 1.5 0 0;");
+        return p;
     }
 
     private StackPane createCell(Node node, double width, Pos alignment) {
@@ -532,34 +610,5 @@ public class StudentQuestionHistoryView extends BorderPane {
 
     private String truncate(String t, int max) {
         return t.length() <= max ? t : t.substring(0, max - 3) + "...";
-    }
-
-    private void loadMockData() {
-        LocalDate base = LocalDate.now();
-        for (int i = 0; i < 50; i++) {
-            LocalDateTime start = base.atTime(0, 0).plusMinutes(i * 30);
-            LocalDateTime end = base.atTime(23, 59);
-
-            Question q = new Question(
-                    "Pergunta de teste " + (i + 1) + ": Qual é o package introduzido no Java para HTTP Client?",
-                    "a",
-                    new String[]{"java.net.http", "javax.http", "org.apache.http", "com.google.http"},
-                    start,
-                    end,
-                    String.valueOf(i)
-            );
-
-            boolean isCorrect = (i % 3 != 0);
-            allItems.add(new StudentHistoryItem(q, isCorrect));
-        }
-    }
-
-    private static class StudentHistoryItem {
-        final Question question;
-        final boolean isCorrect;
-        StudentHistoryItem(Question question, boolean isCorrect) {
-            this.question = question;
-            this.isCorrect = isCorrect;
-        }
     }
 }

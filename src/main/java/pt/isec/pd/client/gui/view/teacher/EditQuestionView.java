@@ -1,5 +1,6 @@
 package pt.isec.pd.client.gui.view.teacher;
 
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Cursor;
@@ -7,10 +8,12 @@ import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.SVGPath;
+import javafx.stage.Stage;
+import javafx.stage.StageStyle;
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
-import pt.isec.pd.common.Question;
-import pt.isec.pd.common.User;
+import pt.isec.pd.common.entities.Question;
+import pt.isec.pd.common.entities.User;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -53,6 +56,7 @@ public class EditQuestionView extends BorderPane {
     private final Button addOptionButton = new Button("Add Option");
     private final Button saveButton = new Button("Save & Submit");
     private final Button backButton = new Button("Back");
+    private final Button deleteButton = new Button("Delete Question");
 
     private StackPane overlay;
     private VBox submitPopup;
@@ -98,10 +102,17 @@ public class EditQuestionView extends BorderPane {
                 -fx-font-size: 20px;
                 -fx-font-weight: bold;
                 """);
-        HBox questionLabelBox = new HBox(questionLabel);
-        questionLabelBox.setAlignment(Pos.CENTER_LEFT);
-        questionLabelBox.setPadding(new Insets(0, 0, 0, -20));
-        questionLabelBox.setMaxWidth(760);
+
+        styleDeleteButton(deleteButton);
+        deleteButton.setOnAction(e -> handleDelete());
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        HBox titleBar = new HBox(10, questionLabel, spacer, deleteButton);
+        titleBar.setAlignment(Pos.CENTER_LEFT);
+
+        titleBar.setMaxWidth(800);
 
         questionArea.setPromptText("Question...");
         questionArea.setWrapText(true);
@@ -128,6 +139,10 @@ public class EditQuestionView extends BorderPane {
         HBox questionAreaContainer = new HBox(questionArea);
         questionAreaContainer.setAlignment(Pos.CENTER);
         HBox.setHgrow(questionArea, Priority.ALWAYS);
+
+        questionAreaContainer.setMaxWidth(800);
+        VBox.setMargin(questionAreaContainer, new Insets(0, 0, 0, 0));
+
 
         optionsColumn.setAlignment(Pos.TOP_LEFT);
         radiosColumn.setAlignment(Pos.TOP_CENTER);
@@ -185,13 +200,12 @@ public class EditQuestionView extends BorderPane {
                 stateManager.showQuestionHistory(user);
         });
 
-        VBox buttonsBox = new VBox(40, saveButton, backButton);
+        VBox buttonsBox = new VBox(20, saveButton, backButton);
         buttonsBox.setAlignment(Pos.CENTER);
-        buttonsBox.setSpacing(20);
         VBox.setMargin(buttonsBox, new Insets(50, 0, 0, 0));
 
         root.getChildren().addAll(
-                questionLabelBox,
+                titleBar,
                 questionAreaContainer,
                 middleArea,
                 buttonsBox
@@ -199,6 +213,7 @@ public class EditQuestionView extends BorderPane {
 
         return root;
     }
+
 
     private void styleButton(Button btn, SVGPath icon) {
         btn.setCursor(Cursor.HAND);
@@ -520,69 +535,100 @@ public class EditQuestionView extends BorderPane {
 
     private void handleSave() {
         try {
+            // 1. Validar Texto
             String text = questionArea.getText().trim();
             if (text.isEmpty()) {
-                showAlert("Validation", "Question text is required.");
+                showAlert(Alert.AlertType.WARNING, "Validation Error", "Please enter the question text.");
                 return;
             }
 
+            // 2. Validar Opções
             List<String> options = new ArrayList<>();
-            int correctIndex = -1;
+            String correctOptionText = null;
 
-            for (int i = 0; i < optionRows.size(); i++) {
-                OptionRow or = optionRows.get(i);
-                String optText = or.textField.getText().trim();
-                if (optText.isEmpty()) {
-                    continue;
-                }
-                options.add(optText);
-                if (or.radioButton.isSelected()) {
-                    correctIndex = i;
+            for (OptionRow row : optionRows) {
+                String optText = row.textField.getText().trim();
+                if (!optText.isEmpty()) {
+                    options.add(optText);
+                    if (row.radioButton.isSelected()) {
+                        correctOptionText = optText;
+                    }
                 }
             }
 
             if (options.size() < 2) {
-                showAlert("Validation", "At least two options are required.");
+                showAlert(Alert.AlertType.WARNING, "Validation Error", "At least two valid options are required.");
+                return;
+            }
+            if (correctOptionText == null) {
+                showAlert(Alert.AlertType.WARNING, "Validation Error", "Please select the correct option.");
                 return;
             }
 
-            if (correctIndex < 0 || correctIndex >= options.size()) {
-                showAlert("Validation", "Select the correct option.");
-                return;
-            }
-
-            if (!isValidDate(startDateField.getText()) || !isValidDate(endDateField.getText()) ||
-                    !isValidTime(startTimeField.getText()) || !isValidTime(endTimeField.getText())) {
-                showAlert("Validation", "Invalid date or time.");
+            // 3. Validar Datas
+            if (!isValidDate(startDateField.getText()) || !isValidTime(startTimeField.getText()) ||
+                    !isValidDate(endDateField.getText()) || !isValidTime(endTimeField.getText())) {
+                showAlert(Alert.AlertType.WARNING, "Validation Error", "Invalid date or time format.");
                 return;
             }
 
             LocalDate sd = parseDate(startDateField.getText());
-            LocalDate ed = parseDate(endDateField.getText());
             LocalTime st = parseTime(startTimeField.getText());
+            LocalDate ed = parseDate(endDateField.getText());
             LocalTime et = parseTime(endTimeField.getText());
 
             LocalDateTime start = LocalDateTime.of(sd, st);
             LocalDateTime end = LocalDateTime.of(ed, et);
 
             if (!end.isAfter(start)) {
-                showAlert("Validation", "End datetime must be after start datetime.");
+                showAlert(Alert.AlertType.WARNING, "Validation Error", "End time must be after start time.");
                 return;
             }
 
-            question.setQuestion(text);
-            question.setOptions(options.toArray(new String[0]));
-            char correctLetter = (char) ('a' + correctIndex);
-            question.setCorrectOption(String.valueOf(correctLetter));
-            question.setStartTime(start);
-            question.setEndTime(end);
+            Question updatedQ = new Question(
+                    text,
+                    correctOptionText,
+                    options.toArray(new String[0]),
+                    start,
+                    end,
+                    user.getEmail()
+            );
+            updatedQ.setId(question.getId());
 
-            overlay.setVisible(true);
+            // 5. Enviar
+            saveButton.setDisable(true);
+            new Thread(() -> {
+                try {
+                    boolean success = client.editQuestion(updatedQ);
+
+                    Platform.runLater(() -> {
+                        saveButton.setDisable(false);
+                        if (success) {
+                            overlay.setVisible(true); // Popup de sucesso
+                        } else {
+                            showAlert(Alert.AlertType.ERROR, "Server Error", "Failed to update question.");
+                        }
+                    });
+                } catch (Exception e) {
+                    Platform.runLater(() -> {
+                        saveButton.setDisable(false);
+                        showAlert(Alert.AlertType.ERROR, "Connection Error", e.getMessage());
+                    });
+                }
+            }).start();
 
         } catch (Exception e) {
             e.printStackTrace();
-            showAlert("Error", "Error while saving the question.");
         }
+    }
+
+    private void showAlert(Alert.AlertType type, String title, String content) {
+        Alert alert = new Alert(type);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(content);
+        alert.getDialogPane().setStyle("-fx-background-color: #D9D9D9; -fx-text-fill: black;");
+        alert.showAndWait();
     }
 
     private LocalDate parseDate(String text) {
@@ -680,4 +726,184 @@ public class EditQuestionView extends BorderPane {
             this.optionLine = optionLine;
         }
     }
+
+    private void styleDeleteButton(Button btn) {
+        btn.setCursor(Cursor.HAND);
+        btn.setPrefWidth(180);
+        btn.setPrefHeight(40);
+        btn.setStyle("""
+            -fx-background-color: #A00000;
+            -fx-text-fill: white;
+            -fx-font-size: 12px;
+            -fx-font-weight: bold;
+            -fx-background-radius: 12;
+            -fx-alignment: CENTER;
+        """);
+    }
+
+    private void handleDelete() {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.initStyle(StageStyle.TRANSPARENT);
+
+        DialogPane dialogPane = dialog.getDialogPane();
+        dialogPane.getScene().setFill(Color.TRANSPARENT);
+
+        dialogPane.setStyle("""
+        -fx-background-color: transparent;
+        -fx-padding: 0;
+    """);
+
+        Stage stage = (Stage) dialogPane.getScene().getWindow();
+        stage.initStyle(StageStyle.TRANSPARENT);
+
+        VBox mainBox = new VBox(15);
+        mainBox.setAlignment(Pos.CENTER);
+        mainBox.setPadding(new Insets(20, 20, 20, 20));
+        mainBox.setStyle("""
+        -fx-background-color: #D9D9D9;
+        -fx-background-radius: 16;
+        -fx-border-color: red;
+        -fx-border-width: 4;
+        -fx-border-radius: 16;
+    """);
+
+        SVGPath customIcon = new SVGPath();
+        customIcon.setContent(
+                "M32.3039 32.5965L19.1207 6.21369C18.0213 4.92877 16.2374 4.92877 15.138 6.21369L1.9537 32.5965C0.8543 33.8802 0.8543 35.9638 1.9537 37.25H32.3039C33.4044 35.9638 33.4044 33.8802 32.3039 32.5965ZM15.9152 15.6845C15.9152 14.6642 16.6228 13.8383 17.4948 13.8383C18.3667 13.8383 19.0744 14.6642 19.0744 15.6845V24.2998C19.0744 25.3189 18.3667 26.146 17.4948 26.146C16.6228 26.146 15.9152 25.3189 15.9152 24.2998V15.6845ZM17.5042 32.3097C16.6323 32.3097 15.9246 31.4851 15.9246 30.4635C15.9246 29.4445 16.6323 28.6174 17.5042 28.6174C18.3762 28.6174 19.0838 30.4635 17.5042 32.3097Z");
+        customIcon.setFill(Color.RED);
+        customIcon.setScaleX(1.4);
+        customIcon.setScaleY(1.4);
+
+        Label titleLabel = new Label("Warning!");
+        titleLabel.setStyle("""
+            -fx-font-size: 18px;
+            -fx-font-weight: bold;
+            -fx-text-fill: black;
+            """);
+
+        Label contentLabel = new Label(
+                "Are you sure you want to permanently delete this question? This action cannot be undone."
+        );
+        contentLabel.setStyle("-fx-text-fill: black; -fx-font-size: 13px;");
+        contentLabel.setWrapText(true);
+
+        VBox contentBox = new VBox(12, customIcon, titleLabel, contentLabel);
+        contentBox.setAlignment(Pos.CENTER);
+
+        Button okButton = new Button("OK");
+        okButton.setCursor(Cursor.HAND);
+        okButton.setStyle("""
+        -fx-background-color: #FF7A00;
+        -fx-text-fill: black;
+        -fx-font-size: 14px;
+        -fx-font-weight: bold;
+        -fx-background-radius: 8;
+        -fx-padding: 8 28;
+    """);
+
+        Button cancelButton = new Button("Cancel");
+        cancelButton.setCursor(Cursor.HAND);
+        cancelButton.setStyle("""
+        -fx-background-color: white;
+        -fx-text-fill: black;
+        -fx-font-size: 14px;
+        -fx-font-weight: bold;
+        -fx-background-radius: 8;
+        -fx-padding: 8 28;
+    """);
+
+        HBox buttonsBox = new HBox(15, okButton, cancelButton);
+        buttonsBox.setAlignment(Pos.CENTER);
+        buttonsBox.setPadding(new Insets(10, 0, 5, 0));
+
+        mainBox.getChildren().addAll(contentBox, buttonsBox);
+
+        dialogPane.setContent(mainBox);
+
+        mainBox.setOpacity(0);
+        javafx.animation.FadeTransition ft = new javafx.animation.FadeTransition(javafx.util.Duration.millis(180), mainBox);
+        ft.setFromValue(0);
+        ft.setToValue(1);
+        ft.play();
+
+        okButton.setOnAction(ev -> {
+            Stage dlgStage = (Stage) dialogPane.getScene().getWindow();
+            dlgStage.close();
+
+            boolean success = client.deleteQuestion(question.getId());
+
+            if (success) {
+                showDeleteSuccessPopup();
+            } else {
+                showAlert("Error", "Could not delete question.");
+            }
+        });
+
+        cancelButton.setOnAction(ev -> {
+            Stage dlgStage = (Stage) dialogPane.getScene().getWindow();
+            dlgStage.close();
+        });
+
+        dialog.showAndWait();
+    }
+
+    private void showDeleteSuccessPopup() {
+        overlay.setVisible(true);
+        overlay.getChildren().clear();
+
+        VBox box = new VBox(15);
+        box.setAlignment(Pos.CENTER);
+        box.setPadding(new Insets(25));
+        box.setMinWidth(360);
+        box.setMaxWidth(360);
+        box.setMinHeight(360);
+        box.setMaxHeight(360);
+
+        box.setStyle("""
+            -fx-background-color: #D9D9D9;
+            -fx-background-radius: 14;
+            -fx-border-color: #A00000;
+            -fx-border-width: 3;
+            -fx-border-radius: 14;
+            """);
+
+        SVGPath trashCan = new SVGPath();
+        trashCan.setContent("M6 19C6 20.1 6.9 21 8 21H16C17.1 21 18 20.1 18 19V7H6V19ZM19 4H15.5L14.5 3H9.5L8.5 4H5V6H19V4Z");
+        trashCan.setFill(Color.web("#A00000")); // Vermelho escuro
+        trashCan.setScaleX(1.5);
+        trashCan.setScaleY(1.5);
+
+        Label title = new Label("Question Deleted");
+        title.setStyle("-fx-font-size: 18px; -fx-text-fill: #A00000; -fx-font-weight: bold;");
+
+        Label msg = new Label("The question has been permanently removed.");
+        msg.setStyle("-fx-text-fill: black; -fx-font-size: 14px;");
+
+        // Botão para voltar à lista
+        Button btnReturn = new Button("Return to History");
+        btnReturn.setCursor(Cursor.HAND);
+        btnReturn.setStyle("""
+            -fx-background-color: #A00000;
+            -fx-text-fill: white;
+            -fx-font-size: 14px;
+            -fx-font-weight: bold;
+            -fx-background-radius: 8;
+            -fx-padding: 8 20;
+        """);
+
+        btnReturn.setOnAction(e -> {
+            overlay.setVisible(false);
+            if (stateManager != null) {
+                stateManager.showQuestionHistory(user);
+            }
+        });
+
+        box.getChildren().addAll(trashCan, title, msg, btnReturn);
+
+        overlay.getChildren().add(box);
+        StackPane.setAlignment(box, Pos.CENTER);
+
+        overlay.setOnMouseClicked(null);
+    }
+
 }

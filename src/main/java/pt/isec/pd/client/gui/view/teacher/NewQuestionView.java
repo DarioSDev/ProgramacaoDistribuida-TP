@@ -9,7 +9,12 @@ import javafx.scene.paint.Color;
 import javafx.scene.shape.SVGPath;
 import pt.isec.pd.client.ClientAPI;
 import pt.isec.pd.client.StateManager;
-import pt.isec.pd.common.User;
+import pt.isec.pd.common.entities.User;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -28,6 +33,7 @@ public class NewQuestionView extends BorderPane {
     private static final double DROPDOWN_OFFSET_Y = 100;
     private StackPane overlay;
     private VBox submitPopup;
+    private Label codeNumber;
 
 
     private static final String SVG_MENU =
@@ -102,6 +108,7 @@ public class NewQuestionView extends BorderPane {
         StackPane.setAlignment(overlay, Pos.CENTER);
 
         initOptions();
+        setDefaultDateTime();
     }
 
     private VBox createCenterContent() {
@@ -505,9 +512,132 @@ public class NewQuestionView extends BorderPane {
     }
 
     private void handleSubmit() {
-        overlay.setVisible(true);
+        String text = questionArea.getText().trim();
+        if (text.isEmpty()) {
+            showAlert(Alert.AlertType.WARNING, "Dados em Falta", "Por favor insira o texto da pergunta.");
+            return;
+        }
+
+        List<String> options = new ArrayList<>();
+        String correctOptionLetter = null;
+
+        int currentIndex = 0;
+        for (OptionRow row : optionRows) {
+            String optText = row.textField.getText().trim();
+
+            if (!optText.isEmpty()) {
+                options.add(optText);
+
+                if (row.radioButton.isSelected()) {
+                    correctOptionLetter = options.get(currentIndex);
+                }
+                currentIndex++;
+            }
+        }
+
+        if (options.size() < 2) {
+            showAlert(Alert.AlertType.WARNING, "Opções Insuficientes", "A pergunta deve ter pelo menos duas opções válidas.");
+            return;
+        }
+
+        if (correctOptionLetter == null) {
+            showAlert(Alert.AlertType.WARNING, "Resposta Correta", "Por favor selecione qual é a opção correta.");
+            return;
+        }
+
+        // 3. Validar Datas e Horas
+        String sDate = startDateField.getText();
+        String sTime = startTimeField.getText();
+        String eDate = endDateField.getText();
+        String eTime = endTimeField.getText();
+
+        if (!isValidDate(sDate) || !isValidTime(sTime) || !isValidDate(eDate) || !isValidTime(eTime)) {
+            showAlert(Alert.AlertType.WARNING, "Formato Inválido", "Verifique as datas (dd/MM/yyyy) e horas (HH:mm).");
+            return;
+        }
+
+        // Converter para objetos de data
+        LocalDate sd = parseDate(sDate);
+        LocalTime st = parseTime(sTime);
+        LocalDate ed = parseDate(eDate);
+        LocalTime et = parseTime(eTime);
+
+        // Verificar cronologia
+        if (java.time.LocalDateTime.of(ed, et).isBefore(java.time.LocalDateTime.of(sd, st))) {
+            showAlert(Alert.AlertType.WARNING, "Datas Inválidas", "A data de fim deve ser posterior à data de início.");
+            return;
+        }
+
+        // 4. Enviar para o Servidor
+        submitButton.setDisable(true);
+        String finalCorrectOption = correctOptionLetter; // Necessário para a lambda
+
+        new Thread(() -> {
+            try {
+                // Chama o método do ClientService
+                ClientAPI.QuestionResult result = client.createQuestion(
+                        user,
+                        text,
+                        options,
+                        finalCorrectOption,
+                        sd, st, ed, et
+                );
+
+                // Atualizar a UI
+                javafx.application.Platform.runLater(() -> {
+                    submitButton.setDisable(false);
+                    if (result.success()) {
+                        codeNumber.setText(result.id());
+                        overlay.setVisible(true);
+                    } else {
+                        showAlert(Alert.AlertType.ERROR, "Erro no Servidor", "Não foi possível criar a pergunta. Tente novamente.");
+                    }
+                });
+
+            } catch (Exception e) {
+                javafx.application.Platform.runLater(() -> {
+                    submitButton.setDisable(false);
+                    showAlert(Alert.AlertType.ERROR, "Erro de Comunicação", e.getMessage());
+                    e.printStackTrace();
+                });
+            }
+        }).start();
     }
 
+    private LocalDate parseDate(String dateStr) {
+        try {
+            String[] parts = dateStr.split("/");
+            return java.time.LocalDate.of(
+                    Integer.parseInt(parts[2]), // Ano
+                    Integer.parseInt(parts[1]), // Mês
+                    Integer.parseInt(parts[0])  // Dia
+            );
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private java.time.LocalTime parseTime(String timeStr) {
+        try {
+            String[] parts = timeStr.split(":");
+            return java.time.LocalTime.of(
+                    Integer.parseInt(parts[0]), // Hora
+                    Integer.parseInt(parts[1])  // Minuto
+            );
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void showAlert(Alert.AlertType type, String title, String content) {
+        Alert alert = new Alert(type);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(content);
+        // Estilo para dark mode (opcional, ajusta conforme o teu CSS)
+        alert.getDialogPane().setStyle("-fx-background-color: #D9D9D9; -fx-text-fill: black;");
+        alert.showAndWait();
+    }
 
     private static class OptionRow {
         final Label letterLabel;
@@ -570,7 +700,7 @@ public class NewQuestionView extends BorderPane {
         Label codeLabel = new Label("Code");
         codeLabel.setStyle("-fx-text-fill: black; -fx-font-size: 14px;");
 
-        Label codeNumber = new Label("123456");
+        codeNumber = new Label("-------");
         codeNumber.setStyle("""
         -fx-text-fill: #FF7A00;
         -fx-font-size: 18px;
@@ -586,8 +716,26 @@ public class NewQuestionView extends BorderPane {
         overlay.setOnMouseClicked(e -> {
             if (e.getTarget() == overlay) {
                 overlay.setVisible(false);
+                backButton.fire();
             }
         });
+    }
 
+    private void setDefaultDateTime() {
+        LocalDateTime now = LocalDateTime.now();
+
+        // Start: 5 minutos atrás
+        LocalDateTime start = now.minusMinutes(5);
+        // End: 5 minutos à frente (tempo total de 10 minutos de "janela" inicial)
+        LocalDateTime end = now.plusMinutes(5);
+
+        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+        DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm");
+
+        startDateField.setText(start.format(dateFormatter));
+        startTimeField.setText(start.format(timeFormatter));
+
+        endDateField.setText(end.format(dateFormatter));
+        endTimeField.setText(end.format(timeFormatter));
     }
 }
